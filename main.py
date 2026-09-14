@@ -17,6 +17,7 @@ import subprocess
 import threading
 
 import rumps
+from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 from PyObjCTools import AppHelper
 
 import audio
@@ -70,6 +71,12 @@ def _set_login_item(enable: bool) -> None:
 class VocaApp(rumps.App):
     def __init__(self) -> None:
         super().__init__("Voca", title=LOADING, quit_button="Quit Voca")
+        # Menu-bar-only, no Dock icon. The thin launcher execs an external
+        # python, so the bundle's LSUIElement is ignored — set the activation
+        # policy in code (Accessory == LSUIElement behavior).
+        NSApplication.sharedApplication().setActivationPolicy_(
+            NSApplicationActivationPolicyAccessory
+        )
         self.cfg = config.load()
         corrections.init_db()
         self.recorder = audio.Recorder()
