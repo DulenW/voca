@@ -12,6 +12,7 @@ Run:  python main.py   (quit from the menu, or Ctrl+C in the terminal)
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 
@@ -28,6 +29,42 @@ import punctuate
 from transcribe import transcribe, warm_up
 
 LOADING, READY, REC, BUSY, ERROR = "…", "🎙️", "🔴", "⏳", "⚠️"
+
+_PROJECT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _app_bundle_path() -> str | None:
+    """Path to Voca.app, if it's been built (repo dir or /Applications)."""
+    for cand in (os.path.join(_PROJECT, "Voca.app"), "/Applications/Voca.app"):
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+def _login_item_present() -> bool:
+    try:
+        out = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get the name of every login item'],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "Voca" in out.stdout
+    except Exception:
+        return False
+
+
+def _set_login_item(enable: bool) -> None:
+    if enable:
+        app = _app_bundle_path()
+        if not app:
+            raise RuntimeError("Voca.app not found — run scripts/build_app.py first.")
+        script = (
+            'tell application "System Events" to make login item at end '
+            f'with properties {{path:"{app}", hidden:false}}'
+        )
+    else:
+        script = 'tell application "System Events" to delete login item "Voca"'
+    subprocess.run(["osascript", "-e", script], check=True, timeout=5)
 
 
 class VocaApp(rumps.App):
@@ -50,8 +87,10 @@ class VocaApp(rumps.App):
             self.corr_menu,
             None,
             rumps.MenuItem("Edit Config…", callback=self._edit_config),
+            rumps.MenuItem("Start at Login", callback=self._toggle_login_item),
         ]
         self._rebuild_learning_menus()
+        self.menu["Start at Login"].state = _login_item_present()
 
         # Load the model off the main thread so the menu bar appears instantly.
         threading.Thread(target=self._startup, daemon=True).start()
@@ -67,6 +106,9 @@ class VocaApp(rumps.App):
         self.status_item.title = s
 
     # --- startup ------------------------------------------------------------
+    # Heavy model loading runs on a background thread; the pynput listener and
+    # all keyboard injection MUST run on the main thread, or a bundled .app
+    # crashes (macOS asserts that HIToolbox/input-source calls are main-thread).
     def _startup(self) -> None:
         try:
             warm_up(self.cfg["model"])
@@ -82,6 +124,11 @@ class VocaApp(rumps.App):
         except Exception as exc:
             print(f"[main] punctuation model not loaded: {exc}")
 
+        # Start the hotkey listener on the main thread.
+        self._ui(self._activate)
+
+    def _activate(self) -> None:
+        """Main thread: start the pynput listener and go ready."""
         self._ptt = hotkey.PushToTalk(
             recorder=self.recorder,
             transcribe_fn=self._transcribe,
@@ -94,15 +141,12 @@ class VocaApp(rumps.App):
         self._ptt.start()
 
         if not hotkey.accessibility_trusted():
-            self._ui(self._set_title, ERROR)
-            self._ui(
-                self._set_status,
-                "Grant Accessibility (System Settings) then restart",
-            )
+            self._set_title(ERROR)
+            self._set_status("Grant Accessibility (System Settings) then restart")
             return
 
-        self._ui(self._set_title, READY)
-        self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
+        self._set_title(READY)
+        self._set_status(f"Ready — hold {self.cfg['hotkey']}")
 
     # --- dictation flow -----------------------------------------------------
     def _transcribe(self, clip, initial_prompt=None) -> str:
@@ -117,23 +161,33 @@ class VocaApp(rumps.App):
         self._ui(self._set_status, "Transcribing…")
 
     def _on_text(self, text: str) -> None:
-        if text:
-            text = corrections.apply_corrections(text)  # learned fixes
-            text = punctuate.restore(text)  # commas / periods / question marks
-            before, known = inject.caret_context()  # what's before the cursor
-            text = formatting.format_text(
-                text,
-                before=before,
-                context_known=known,
-                vocab_terms=[r["term"] for r in corrections.list_vocab()],
-            )
-            inject.inject_text(
-                text,
-                method=self.cfg["paste_method"],
-                restore_clipboard=self.cfg["restore_clipboard"],
-            )
-        self._ui(self._set_title, READY)
-        self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
+        """Runs on a worker thread. Do the heavy text work here, then hand the
+        caret read + keyboard injection to the main thread."""
+        if not text:
+            self._ui(self._set_title, READY)
+            self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
+            return
+        text = corrections.apply_corrections(text)  # learned fixes
+        text = punctuate.restore(text)  # commas / periods / question marks
+        self._ui(self._deliver, text)
+
+    def _deliver(self, text: str) -> None:
+        """Main thread: read caret context, format, and paste (pynput needs
+        the main thread inside a bundled app)."""
+        before, known = inject.caret_context()  # what's before the cursor
+        text = formatting.format_text(
+            text,
+            before=before,
+            context_known=known,
+            vocab_terms=[r["term"] for r in corrections.list_vocab()],
+        )
+        inject.inject_text(
+            text,
+            method=self.cfg["paste_method"],
+            restore_clipboard=self.cfg["restore_clipboard"],
+        )
+        self._set_title(READY)
+        self._set_status(f"Ready — hold {self.cfg['hotkey']}")
 
     # --- learning-layer menus ----------------------------------------------
     @staticmethod
@@ -230,6 +284,13 @@ class VocaApp(rumps.App):
         rumps.notification(
             "Voca", "Editing config", "Changes apply after you restart Voca."
         )
+
+    def _toggle_login_item(self, sender) -> None:
+        try:
+            _set_login_item(not sender.state)
+            sender.state = not sender.state
+        except Exception as exc:
+            rumps.alert("Voca", f"Couldn't change login item:\n{exc}")
 
 
 if __name__ == "__main__":

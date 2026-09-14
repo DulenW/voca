@@ -15,9 +15,13 @@ from __future__ import annotations
 import time
 
 import pyperclip
-from pynput.keyboard import Controller, Key
+import Quartz
 
-_kbd = Controller()
+# Hardware key code for 'v' (kVK_ANSI_V). We post Cmd+V by key code and type
+# text via CGEvent unicode strings — neither touches the Text Input Source API
+# (TSM), which is not thread-safe and crashes a bundled .app off the main
+# thread. CGEventPost itself is thread-safe.
+_KEYCODE_V = 9
 
 
 def caret_context() -> tuple[str, bool]:
@@ -72,9 +76,23 @@ _PRE_PASTE_DELAY = 0.05
 
 
 def _send_cmd_v() -> None:
-    with _kbd.pressed(Key.cmd):
-        _kbd.press("v")
-        _kbd.release("v")
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+    down = Quartz.CGEventCreateKeyboardEvent(src, _KEYCODE_V, True)
+    Quartz.CGEventSetFlags(down, Quartz.kCGEventFlagMaskCommand)
+    up = Quartz.CGEventCreateKeyboardEvent(src, _KEYCODE_V, False)
+    Quartz.CGEventSetFlags(up, Quartz.kCGEventFlagMaskCommand)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+
+
+def _type_text(text: str) -> None:
+    """Type arbitrary text via CGEvent unicode (no key layout / TSM lookup)."""
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+    for ch in text:
+        for pressed in (True, False):
+            ev = Quartz.CGEventCreateKeyboardEvent(src, 0, pressed)
+            Quartz.CGEventKeyboardSetUnicodeString(ev, len(ch), ch)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
 
 
 def inject_text(
@@ -91,7 +109,7 @@ def inject_text(
         return
 
     if method == "type":
-        _kbd.type(text)
+        _type_text(text)
         return
 
     # method == "paste"
