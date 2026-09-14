@@ -19,6 +19,50 @@ from pynput.keyboard import Controller, Key
 
 _kbd = Controller()
 
+
+def caret_context() -> tuple[str, bool]:
+    """Read the text before the caret in the focused field (macOS Accessibility).
+
+    Returns (text_before_caret, known). known=False when the field can't be
+    read (some browser/Electron fields don't expose AXValue) — the caller then
+    falls back to sentence-start formatting. Platform-specific: the Windows
+    port replaces this.
+    """
+    try:
+        from HIServices import (
+            AXUIElementCopyAttributeValue,
+            AXUIElementCreateSystemWide,
+            AXValueGetValue,
+            kAXValueCFRangeType,
+        )
+    except Exception:
+        return ("", False)
+
+    try:
+        system = AXUIElementCreateSystemWide()
+        err, focused = AXUIElementCopyAttributeValue(
+            system, "AXFocusedUIElement", None
+        )
+        if err or focused is None:
+            return ("", False)
+
+        errv, value = AXUIElementCopyAttributeValue(focused, "AXValue", None)
+        if errv or not isinstance(value, str):
+            return ("", False)
+
+        loc = len(value)
+        errr, rng = AXUIElementCopyAttributeValue(
+            focused, "AXSelectedTextRange", None
+        )
+        if not errr and rng is not None:
+            ok, cfrange = AXValueGetValue(rng, kAXValueCFRangeType, None)
+            if ok:
+                loc = int(cfrange.location)
+
+        return (value[:loc], True)
+    except Exception:
+        return ("", False)
+
 # Delay after Cmd+V before restoring the old clipboard. The paste is delivered
 # asynchronously; restore too soon and the app pastes the restored value. ~0.2s
 # is a safe margin without a noticeable lag.

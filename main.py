@@ -21,6 +21,7 @@ from PyObjCTools import AppHelper
 import audio
 import config
 import corrections
+import formatting
 import hotkey
 import inject
 from transcribe import transcribe, warm_up
@@ -110,6 +111,13 @@ class VocaApp(rumps.App):
     def _on_text(self, text: str) -> None:
         if text:
             text = corrections.apply_corrections(text)  # learned fixes
+            before, known = inject.caret_context()  # what's before the cursor
+            text = formatting.format_text(
+                text,
+                before=before,
+                context_known=known,
+                vocab_terms=[r["term"] for r in corrections.list_vocab()],
+            )
             inject.inject_text(
                 text,
                 method=self.cfg["paste_method"],
