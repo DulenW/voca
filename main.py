@@ -29,10 +29,10 @@ import inject
 import punctuate
 from transcribe import transcribe, warm_up
 
-# Menu bar title per state. Lead with the word "Voca" so the item is always
-# visible — bare emoji like 🎙️ can fail to render in the menu bar font and
-# leave an invisible item. Indicators (●, …) render in virtually any font.
-LOADING, READY, REC, BUSY, ERROR = "Voca…", "Voca", "Voca ●", "Voca…", "Voca ⚠"
+# Menu bar title per state (emoji). These render fine now that the app launches
+# via the LaunchAgent in the GUI session; the earlier invisibility was the .app
+# launch method hiding the whole item, not the emoji itself.
+LOADING, READY, REC, BUSY, ERROR = "…", "🎙️", "🔴", "⏳", "⚠️"
 
 
 class VocaApp(rumps.App):
