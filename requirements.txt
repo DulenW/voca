@@ -1,0 +1,19 @@
+# Voca - local-first push-to-talk dictation for macOS (Apple Silicon)
+# Locked stack per spec.md. Pinned to major versions known to work on M-series / Python 3.12.
+
+# On-device speech-to-text on the Apple GPU (Metal) via MLX
+mlx-whisper>=0.4.0
+
+# Audio capture: 16kHz mono float32 from the mic
+sounddevice>=0.4.6
+numpy>=1.26,<2.0
+soundfile>=0.12.1
+
+# Global hotkey capture + synthetic keypress (Cmd+V)
+pynput>=1.7.6
+
+# Clipboard read/write
+pyperclip>=1.8.2
+
+# macOS menu bar app
+rumps>=0.4.0

@@ -1,0 +1,27 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# App runtime data (never commit user data or models)
+*.wav
+*.sqlite
+*.sqlite3
+*.db
+config.json
+
+# Hugging Face / model caches (in case anything lands locally)
+.cache/
+models/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
