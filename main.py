@@ -128,7 +128,12 @@ class VocaApp(rumps.App):
         self._ui(self._activate)
 
     def _activate(self) -> None:
-        """Main thread: start the pynput listener and go ready."""
+        """Main thread: start the event tap on the main run loop and go ready."""
+        if not hotkey.accessibility_trusted():
+            self._set_title(ERROR)
+            self._set_status("Grant Accessibility (System Settings) then restart")
+            return
+
         self._ptt = hotkey.PushToTalk(
             recorder=self.recorder,
             transcribe_fn=self._transcribe,
@@ -138,11 +143,11 @@ class VocaApp(rumps.App):
             on_press_cb=self._on_press,
             on_release_cb=self._on_release,
         )
-        self._ptt.start()
-
-        if not hotkey.accessibility_trusted():
+        try:
+            self._ptt.start()
+        except Exception as exc:
             self._set_title(ERROR)
-            self._set_status("Grant Accessibility (System Settings) then restart")
+            self._set_status(f"Hotkey failed: {exc}")
             return
 
         self._set_title(READY)

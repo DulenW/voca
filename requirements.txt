@@ -9,8 +9,10 @@ sounddevice>=0.4.6
 numpy>=1.26,<2.0
 soundfile>=0.12.1
 
-# Global hotkey capture + synthetic keypress (Cmd+V)
-pynput>=1.7.6
+# Global hotkey capture + key injection use the native macOS Quartz APIs
+# (CGEventTap / CGEvent via pyobjc, pulled in by rumps). We do NOT use pynput:
+# it crashes inside a bundled .app by calling the Text Input Source API off the
+# main thread.
 
 # Clipboard read/write
 pyperclip>=1.8.2
