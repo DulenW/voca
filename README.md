@@ -47,12 +47,26 @@ to your Hugging Face cache. Subsequent runs are fast.
 | `hotkey.py`     | pynput push-to-talk listener — **platform-specific**       |
 | `config.py`     | load/save JSON config                                       |
 
-## Status
+## Running the app
+
+```bash
+source .venv/bin/activate
+python main.py
+```
+
+A menu bar icon appears (… loading → 🎙️ ready). Hold **Right Option**, speak,
+release — the text is pasted into the focused app. Click the icon to add vocab
+terms, add corrections, or edit the config. Quit from the menu.
+
+Requires macOS **Microphone** and **Accessibility** permissions (System
+Settings → Privacy & Security). Runs fully offline; English output only.
+
+## Status — v1 complete
 
 - [x] Phase 1 — Environment setup + model transcribes
-- [ ] Phase 2 — Audio capture
-- [ ] Phase 3 — Push-to-talk hotkey
-- [ ] Phase 4 — Paste injection
-- [ ] Phase 5 — Menu bar app
-- [ ] Phase 6 — Learning layer
-- [ ] Phase 7 — Battery pass
+- [x] Phase 2 — Audio capture
+- [x] Phase 3 — Push-to-talk hotkey
+- [x] Phase 4 — Paste injection
+- [x] Phase 5 — Menu bar app
+- [x] Phase 6 — Learning layer (vocab + corrections)
+- [x] Phase 7 — Battery pass (idle 0% CPU, no mic/polling, model stays warm)
