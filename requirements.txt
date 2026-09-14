@@ -17,3 +17,8 @@ pyperclip>=1.8.2
 
 # macOS menu bar app
 rumps>=0.4.0
+
+# Local English punctuation restoration (felflare/bert-restore-punctuation).
+# Runs on CPU/MPS via torch (pulled in transitively); used only during a
+# dictation, never at idle.
+transformers>=4.40,<5

@@ -24,6 +24,7 @@ import corrections
 import formatting
 import hotkey
 import inject
+import punctuate
 from transcribe import transcribe, warm_up
 
 LOADING, READY, REC, BUSY, ERROR = "…", "🎙️", "🔴", "⏳", "⚠️"
@@ -74,6 +75,13 @@ class VocaApp(rumps.App):
             self._ui(self._set_status, f"Model failed to load: {exc}")
             return
 
+        # Punctuation model is optional: warm it if present, else degrade to
+        # Whisper's own punctuation (restore() becomes a no-op).
+        try:
+            punctuate.warm_up()
+        except Exception as exc:
+            print(f"[main] punctuation model not loaded: {exc}")
+
         self._ptt = hotkey.PushToTalk(
             recorder=self.recorder,
             transcribe_fn=self._transcribe,
@@ -111,6 +119,7 @@ class VocaApp(rumps.App):
     def _on_text(self, text: str) -> None:
         if text:
             text = corrections.apply_corrections(text)  # learned fixes
+            text = punctuate.restore(text)  # commas / periods / question marks
             before, known = inject.caret_context()  # what's before the cursor
             text = formatting.format_text(
                 text,
