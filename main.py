@@ -34,42 +34,6 @@ from transcribe import transcribe, warm_up
 # leave an invisible item. Indicators (●, …) render in virtually any font.
 LOADING, READY, REC, BUSY, ERROR = "Voca…", "Voca", "Voca ●", "Voca…", "Voca ⚠"
 
-_PROJECT = os.path.dirname(os.path.abspath(__file__))
-
-
-def _app_bundle_path() -> str | None:
-    """Path to Voca.app, if it's been built (repo dir or /Applications)."""
-    for cand in (os.path.join(_PROJECT, "Voca.app"), "/Applications/Voca.app"):
-        if os.path.isdir(cand):
-            return cand
-    return None
-
-
-def _login_item_present() -> bool:
-    try:
-        out = subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to get the name of every login item'],
-            capture_output=True, text=True, timeout=5,
-        )
-        return "Voca" in out.stdout
-    except Exception:
-        return False
-
-
-def _set_login_item(enable: bool) -> None:
-    if enable:
-        app = _app_bundle_path()
-        if not app:
-            raise RuntimeError("Voca.app not found — run scripts/build_app.py first.")
-        script = (
-            'tell application "System Events" to make login item at end '
-            f'with properties {{path:"{app}", hidden:false}}'
-        )
-    else:
-        script = 'tell application "System Events" to delete login item "Voca"'
-    subprocess.run(["osascript", "-e", script], check=True, timeout=5)
-
 
 class VocaApp(rumps.App):
     def __init__(self) -> None:
@@ -97,10 +61,8 @@ class VocaApp(rumps.App):
             self.corr_menu,
             None,
             rumps.MenuItem("Edit Config…", callback=self._edit_config),
-            rumps.MenuItem("Start at Login", callback=self._toggle_login_item),
         ]
         self._rebuild_learning_menus()
-        self.menu["Start at Login"].state = _login_item_present()
 
         # Load the model off the main thread so the menu bar appears instantly.
         threading.Thread(target=self._startup, daemon=True).start()
@@ -299,13 +261,6 @@ class VocaApp(rumps.App):
         rumps.notification(
             "Voca", "Editing config", "Changes apply after you restart Voca."
         )
-
-    def _toggle_login_item(self, sender) -> None:
-        try:
-            _set_login_item(not sender.state)
-            sender.state = not sender.state
-        except Exception as exc:
-            rumps.alert("Voca", f"Couldn't change login item:\n{exc}")
 
 
 if __name__ == "__main__":
