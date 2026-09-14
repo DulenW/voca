@@ -29,7 +29,10 @@ import inject
 import punctuate
 from transcribe import transcribe, warm_up
 
-LOADING, READY, REC, BUSY, ERROR = "…", "🎙️", "🔴", "⏳", "⚠️"
+# Menu bar title per state. Lead with the word "Voca" so the item is always
+# visible — bare emoji like 🎙️ can fail to render in the menu bar font and
+# leave an invisible item. Indicators (●, …) render in virtually any font.
+LOADING, READY, REC, BUSY, ERROR = "Voca…", "Voca", "Voca ●", "Voca…", "Voca ⚠"
 
 _PROJECT = os.path.dirname(os.path.abspath(__file__))
 
