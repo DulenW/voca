@@ -32,7 +32,7 @@ def main() -> int:
         print("=" * 62)
         # Keep going anyway: on first run macOS may show the prompt now.
 
-    print(f"Loading model (warming up)...")
+    print("Loading model (warming up)...")
     warm_up()
 
     rec = audio.Recorder()

@@ -1,7 +1,7 @@
 """main.py — the Voca menu bar app. Wires everything together.
 
 Loads the Whisper model once at startup and keeps it warm for the whole
-session. A pynput listener (passive at idle, no polling) drives push-to-talk;
+session. A native CGEventTap (passive at idle, no polling) drives push-to-talk;
 on release the audio is transcribed, corrections are applied, and the text is
 pasted into the focused app. Custom vocab biases the model's spelling.
 
@@ -12,7 +12,6 @@ Run:  python main.py   (quit from the menu, or Ctrl+C in the terminal)
 
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 
@@ -78,9 +77,9 @@ class VocaApp(rumps.App):
         self.status_item.title = s
 
     # --- startup ------------------------------------------------------------
-    # Heavy model loading runs on a background thread; the pynput listener and
-    # all keyboard injection MUST run on the main thread, or a bundled .app
-    # crashes (macOS asserts that HIToolbox/input-source calls are main-thread).
+    # Heavy model loading runs on a background thread; the CGEventTap and all
+    # keyboard injection run on the main thread (the tap attaches to the main
+    # run loop, and macOS input-source calls must be main-thread).
     def _startup(self) -> None:
         try:
             warm_up(self.cfg["model"])
@@ -106,16 +105,18 @@ class VocaApp(rumps.App):
             self._set_status("Grant Accessibility (System Settings) then restart")
             return
 
-        self._ptt = hotkey.PushToTalk(
-            recorder=self.recorder,
-            transcribe_fn=self._transcribe,
-            on_text=self._on_text,
-            key=self.cfg["hotkey"],
-            initial_prompt_provider=corrections.vocab_prompt,
-            on_press_cb=self._on_press,
-            on_release_cb=self._on_release,
-        )
         try:
+            # Construction validates the configured hotkey, so keep it inside
+            # the guard — a bad `hotkey` in the config raises here.
+            self._ptt = hotkey.PushToTalk(
+                recorder=self.recorder,
+                transcribe_fn=self._transcribe,
+                on_text=self._on_text,
+                key=self.cfg["hotkey"],
+                initial_prompt_provider=corrections.vocab_prompt,
+                on_press_cb=self._on_press,
+                on_release_cb=self._on_release,
+            )
             self._ptt.start()
         except Exception as exc:
             self._set_title(ERROR)
@@ -149,8 +150,7 @@ class VocaApp(rumps.App):
         self._ui(self._deliver, text)
 
     def _deliver(self, text: str) -> None:
-        """Main thread: read caret context, format, and paste (pynput needs
-        the main thread inside a bundled app)."""
+        """Main thread: read caret context, format, and paste."""
         before, known = inject.caret_context()  # what's before the cursor
         text = formatting.format_text(
             text,
@@ -258,9 +258,15 @@ class VocaApp(rumps.App):
     # --- menu actions -------------------------------------------------------
     def _edit_config(self, _sender) -> None:
         subprocess.Popen(["open", "-t", config.CONFIG_PATH])
-        rumps.notification(
-            "Voca", "Editing config", "Changes apply after you restart Voca."
-        )
+        # A banner needs an app bundle, which the LaunchAgent isn't, so it may
+        # not show on modern macOS — guard it and never let it break the click.
+        try:
+            rumps.notification(
+                "Voca", "Editing config",
+                "Reload to apply: python scripts/install.py (or quit + login)."
+            )
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

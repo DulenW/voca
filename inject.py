@@ -23,6 +23,13 @@ import Quartz
 # thread. CGEventPost itself is thread-safe.
 _KEYCODE_V = 9
 
+# Delay after Cmd+V before restoring the old clipboard. The paste is delivered
+# asynchronously; restore too soon and the app pastes the restored value. ~0.2s
+# is a safe margin without a noticeable lag.
+DEFAULT_RESTORE_DELAY = 0.2
+# Small settle time so the clipboard write lands before we press Cmd+V.
+_PRE_PASTE_DELAY = 0.05
+
 
 def caret_context() -> tuple[str, bool]:
     """Read the text before the caret in the focused field (macOS Accessibility).
@@ -66,13 +73,6 @@ def caret_context() -> tuple[str, bool]:
         return (value[:loc], True)
     except Exception:
         return ("", False)
-
-# Delay after Cmd+V before restoring the old clipboard. The paste is delivered
-# asynchronously; restore too soon and the app pastes the restored value. ~0.2s
-# is a safe margin without a noticeable lag.
-DEFAULT_RESTORE_DELAY = 0.2
-# Small settle time so the clipboard write lands before we press Cmd+V.
-_PRE_PASTE_DELAY = 0.05
 
 
 def _send_cmd_v() -> None:

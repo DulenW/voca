@@ -2,8 +2,7 @@
 
 Battery rule (spec.md): the mic stream is opened ONLY while recording and
 closed immediately on stop. It is never held open at idle. The push-to-talk
-hotkey (Phase 3) drives start() on key-down and stop() on key-up; the same
-Recorder also serves the fixed-duration test via record_fixed().
+hotkey drives start() on key-down and stop() on key-up.
 """
 
 from __future__ import annotations
@@ -90,18 +89,6 @@ class Recorder:
         if self._capture_rate != self.sample_rate:
             audio = _resample(audio, self._capture_rate, self.sample_rate)
         return audio
-
-    @property
-    def is_recording(self) -> bool:
-        return self._stream is not None
-
-    def record_fixed(self, seconds: float) -> np.ndarray:
-        """Convenience for the Phase 2 test: record for a fixed duration."""
-        import time
-
-        self.start()
-        time.sleep(seconds)
-        return self.stop()
 
 
 def _resample(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:

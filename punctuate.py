@@ -51,7 +51,6 @@ def _load() -> bool:
     if _model is not None:
         return _available
     try:
-        import torch  # noqa: F401
         from transformers import AutoModelForTokenClassification, AutoTokenizer
 
         _tokenizer = AutoTokenizer.from_pretrained(MODEL)

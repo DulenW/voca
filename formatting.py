@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 
 _ENDS = ".!?"
+_SENTENCE_BOUNDARY = _ENDS + "\n\r:"  # after these, a new sentence begins
 
 # Capitalize the first letter of a sentence that starts *inside* the text
 # (after a terminal mark + space), e.g. "...mat. it was" -> "...mat. It was".
@@ -26,7 +27,7 @@ _SENTENCE_RESTART = re.compile(r"([.!?]\s+)([a-z])")
 
 def capitalize_sentences(text: str) -> str:
     return _SENTENCE_RESTART.sub(lambda m: m.group(1) + m.group(2).upper(), text)
-_SENTENCE_BOUNDARY = _ENDS + "\n\r:"  # after these, a new sentence begins
+
 
 # If a standalone utterance starts with one of these, end it with "?" not ".".
 _QUESTION_STARTERS = {
