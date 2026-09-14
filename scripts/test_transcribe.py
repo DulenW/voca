@@ -14,7 +14,9 @@ Usage:
 """
 
 import os
+import subprocess
 import sys
+import tempfile
 import time
 
 # Force fully-local operation: use the cached model, never hit the network.
@@ -30,9 +32,26 @@ MODEL = "mlx-community/whisper-large-v3-turbo"
 SAMPLE_RATE = 16000
 
 
+def _to_wav_if_needed(path: str) -> str:
+    """soundfile reads WAV/FLAC/AIFF but not m4a/mp3/caf. For those, convert to
+    a temp 16kHz mono WAV using macOS's built-in `afconvert` (no install). This
+    is a TEST convenience only — the real app captures raw mic audio and never
+    touches this path."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".wav", ".flac", ".aiff", ".aif"):
+        return path
+    out = os.path.join(tempfile.gettempdir(), "voca_test_input.wav")
+    print(f"  converting {ext} -> wav via afconvert...")
+    subprocess.run(
+        ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", path, out],
+        check=True,
+    )
+    return out
+
+
 def load_audio(path: str) -> np.ndarray:
-    """Load a WAV as mono float32 at 16kHz-ish. Returns a 1-D numpy array."""
-    audio, sr = sf.read(path, dtype="float32")
+    """Load audio as mono float32 at 16kHz-ish. Returns a 1-D numpy array."""
+    audio, sr = sf.read(_to_wav_if_needed(path), dtype="float32")
     if audio.ndim > 1:  # stereo -> mono
         audio = audio.mean(axis=1)
     if sr != SAMPLE_RATE:
