@@ -20,6 +20,23 @@ import numpy as np
 import mlx_whisper
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
+LANGUAGE = "en"  # English only — never detect or output other languages
+
+# A capitalized, well-punctuated primer. Whisper continues in the style of its
+# initial_prompt, so this biases it toward proper capitalization and punctuation
+# (periods, commas, question marks). Custom vocab is appended to the same prompt
+# so name/jargon spelling and punctuation style come from one context.
+_STYLE_PRIMER = (
+    "The following is a clear English transcript with correct capitalization "
+    "and punctuation."
+)
+
+
+def _build_prompt(vocab: str | None) -> str:
+    """Combine the punctuation/capitalization primer with the custom vocab."""
+    if vocab:
+        return f"{_STYLE_PRIMER} Vocabulary: {vocab}."
+    return _STYLE_PRIMER
 
 
 def transcribe(
@@ -27,9 +44,10 @@ def transcribe(
     model: str = DEFAULT_MODEL,
     initial_prompt: str | None = None,
 ) -> str:
-    """Transcribe 16kHz mono float32 audio to text.
+    """Transcribe 16kHz mono float32 audio to English text.
 
-    initial_prompt biases spelling (Phase 6 passes the custom vocab here).
+    initial_prompt carries the custom vocab (Phase 6); it's wrapped in a
+    punctuation primer so output is properly capitalized and punctuated.
     Returns the stripped transcript, or "" for empty/near-silent input.
     """
     if audio is None or audio.size == 0:
@@ -37,7 +55,8 @@ def transcribe(
     result = mlx_whisper.transcribe(
         audio,
         path_or_hf_repo=model,
-        initial_prompt=initial_prompt,
+        language=LANGUAGE,
+        initial_prompt=_build_prompt(initial_prompt),
     )
     return result["text"].strip()
 
