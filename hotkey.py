@@ -70,6 +70,23 @@ def accessibility_trusted() -> bool:
         return True
 
 
+def request_accessibility() -> bool:
+    """Like accessibility_trusted(), but if not yet granted it shows the system
+    "grant Accessibility" prompt and adds this app to the list (with the correct
+    identity). Returns whether currently trusted."""
+    try:
+        from ApplicationServices import (
+            AXIsProcessTrustedWithOptions,
+            kAXTrustedCheckOptionPrompt,
+        )
+
+        return bool(
+            AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+        )
+    except Exception:
+        return accessibility_trusted()
+
+
 class PushToTalk:
     """Hold `key` to record; release to transcribe.
 

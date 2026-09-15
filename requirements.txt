@@ -24,3 +24,7 @@ rumps>=0.4.0
 # Runs on CPU/MPS via torch (pulled in transitively); used only during a
 # dictation, never at idle.
 transformers>=4.40,<5
+
+# Voice-activity detection to gate out silence/noise before transcription,
+# so Whisper doesn't hallucinate text. Tiny on-device model; runs on torch.
+silero-vad>=5.1

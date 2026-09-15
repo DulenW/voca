@@ -27,46 +27,27 @@ Built and tested on a MacBook Air (Apple M4).
 - ⚡ **Fast** — Whisper `large-v3-turbo` stays warm in memory; ~1s per dictation.
 - 🧠 **Learns from you** — custom vocabulary biases spelling; corrections auto-fix recurring mistakes.
 - ✍️ **Smart formatting** — English-only output, on-device punctuation (commas, periods, question marks), and context-aware capitalization (no capital when you dictate mid-sentence).
+- 🔇 **Noise-aware** — an energy gate + on-device VAD (Silero) skip silence and background noise, so Whisper doesn't hallucinate text when you don't actually speak.
 - 🔋 **Battery friendly** — event-driven, no polling; the mic opens only while you hold the key; ~0% CPU at idle.
-- 📎 Menu bar app, no Dock icon. Auto-starts at login.
+- 📎 Menu bar app, no Dock icon. Optional start-at-login.
 
-## Requirements
-
-- **macOS on Apple Silicon** (M1/M2/M3/M4).
-- **Python 3.11+** (this repo is built against 3.12). Install via Homebrew: `brew install python@3.12`.
-- ~2.5 GB disk for the two on-device models (downloaded once).
+**Requires macOS on Apple Silicon (M1–M4).** ~2.5 GB disk for the models.
 
 ## Install
 
-```bash
-# 1. Clone
-git clone https://github.com/DulenW/voca.git
-cd voca
+1. Download **`Voca.dmg`** from the [latest release](https://github.com/DulenW/voca/releases/latest).
+2. Open the `.dmg` and drag **Voca** into your **Applications** folder.
+3. **First launch:** the app isn't signed by Apple, so **right-click (Control-click) Voca → Open**, then confirm. You only do this once. (Double-clicking instead shows an "unidentified developer" warning.)
 
-# 2. Create the virtualenv and install dependencies
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Download the models once (needs internet; ~2.5 GB total)
-python scripts/setup_models.py
-
-# 4. Install & start as a login-item menu bar app
-python scripts/install.py
-```
-
-A `🎙️` icon appears in the menu bar (`…` while it loads the first time). Voca
-now starts automatically at every login.
-
-### Grant permissions (first run)
-
-macOS will ask for two permissions the first time you use it — both are
-required, and both are handled locally:
+On first run:
 
 - **Microphone** — click *Allow* when prompted.
-- **Accessibility** — needed to capture the global hotkey and to paste. Go to
-  **System Settings → Privacy & Security → Accessibility** and enable the entry
-  for Voca / Python. Then reload: `python scripts/install.py`.
+- **Accessibility** — go to **System Settings → Privacy & Security → Accessibility** and enable **Voca** (needed for the global hotkey and pasting). Then quit and reopen Voca from the menu.
+- Voca **downloads ~1.9 GB of models once** — the menu bar shows progress. After that it runs fully offline.
+
+A `🎙️` icon appears in the menu bar and Voca starts automatically at login.
+
+> **Note:** updating an unsigned app can reset its Accessibility permission. If the hotkey stops responding after an update, re-enable **Voca** under Accessibility.
 
 ## Usage
 
@@ -98,30 +79,47 @@ Config lives at `~/Library/Application Support/Voca/config.json`:
 | `restore_clipboard`| `true`                                     | Restore your clipboard after pasting      |
 | `paste_method`     | `paste`                                    | `paste` (Cmd+V) or `type` (keystrokes)    |
 
-Changes apply after a reload: `python scripts/install.py`.
+Changes apply after you quit and reopen Voca (from the menu bar icon).
 
 Your vocabulary and corrections are stored in
 `~/Library/Application Support/Voca/voca.sqlite`.
 
 ## Updating / uninstalling
 
+- **Update:** download the newer `Voca.dmg` and replace the app in Applications.
+- **Uninstall:** quit Voca, drag **Voca** from Applications to the Trash. To also
+  remove models and settings, delete `~/Library/Application Support/Voca`.
+
+## Run from source (developers)
+
 ```bash
-python scripts/install.py     # reload after pulling changes or editing config
-python scripts/uninstall.py   # stop and remove from login (keeps models & settings)
+git clone https://github.com/DulenW/voca.git && cd voca
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python scripts/setup_models.py     # download models (~2.5 GB, one time)
+python scripts/install.py          # run as a login-item LaunchAgent
 ```
 
-To quit for the current session only, use **Voca → Quit Voca** in the menu (it
-returns at next login). Run it manually without installing: `python main.py`.
+`scripts/uninstall.py` removes the LaunchAgent; `python main.py` runs it once
+without installing.
+
+**Build the app + `.dmg`:**
+
+```bash
+pip install -r requirements-dev.txt
+bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.1.0.dmg
+```
 
 ## Troubleshooting
 
-- **Menu bar icon missing / crashes as a `.app`.** Voca is intentionally
-  installed as a **LaunchAgent**, not a `.app`. A thin-launcher `.app` has to
-  exec an external Python, and macOS won't draw a status item for a process
-  launched that way. Use `scripts/install.py`.
-- **Hotkey does nothing / `⚠️`.** Accessibility isn't granted. Enable Voca/Python
-  under System Settings → Privacy & Security → Accessibility, then reload.
-- **First run is slow.** It's downloading models; subsequent runs load from cache.
+- **"Voca can't be opened — unidentified developer."** The app is unsigned.
+  Right-click (Control-click) **Voca** in Applications → **Open** → confirm. You
+  only need to do this once.
+- **Hotkey does nothing / `⚠️` icon.** Accessibility isn't granted. Enable
+  **Voca** under System Settings → Privacy & Security → Accessibility, then quit
+  and reopen Voca. (After an app update you may need to re-enable it.)
+- **First run is slow.** It's downloading ~1.9 GB of models once; later runs load
+  from cache and start fast.
 - **Right Option types accents instead.** Pick a different `hotkey` in the config.
 
 ## How it works
@@ -129,7 +127,9 @@ returns at next login). Run it manually without installing: `python main.py`.
 - **Idle:** a native macOS `CGEventTap` on the main run loop waits for the hotkey.
   No polling, no open mic — ~0% CPU.
 - **Key down:** the mic opens (16 kHz mono) and buffers audio.
-- **Key up:** the mic closes immediately; audio goes to Whisper (kept warm in RAM).
+- **Key up:** the mic closes immediately. A speech gate (energy threshold +
+  Silero VAD) drops the clip if there's no real speech; otherwise it goes to
+  Whisper (kept warm in RAM).
 - **Post-processing:** apply saved corrections → restore punctuation
   (`felflare/bert-restore-punctuation`, English) → context-aware capitalization.
 - **Paste:** copy to clipboard + Cmd+V via Quartz key events, then restore your
@@ -152,14 +152,18 @@ Custom vocabulary is passed to Whisper as an `initial_prompt` to bias spelling.
 | `main.py`                | Menu bar app (rumps); wires everything together          |
 | `audio.py`               | Mic capture (16 kHz mono float32)                        |
 | `transcribe.py`          | mlx-whisper wrapper; loads once, English-only, offline   |
+| `speech.py`              | Speech gate (energy + Silero VAD) — skips silence/noise  |
 | `punctuate.py`           | On-device English punctuation restoration                |
 | `formatting.py`          | Capitalization, end marks, spacing                       |
 | `corrections.py`         | SQLite learning layer (vocab + corrections)              |
 | `inject.py`              | Clipboard + paste via Quartz — **platform-specific**     |
 | `hotkey.py`              | Push-to-talk CGEventTap — **platform-specific**          |
 | `config.py`              | Load/save JSON config                                    |
-| `scripts/setup_models.py`| One-time model download                                 |
-| `scripts/install.py`     | Install/reload the LaunchAgent                           |
+| `firstrun.py`            | First-launch model download                              |
+| `setup.py`               | py2app build config for `Voca.app`                       |
+| `scripts/build_app.sh`   | Build `Voca.app` + `.dmg`                                |
+| `scripts/setup_models.py`| One-time model download (source install)                |
+| `scripts/install.py`     | Install/reload the LaunchAgent (source install)          |
 | `scripts/uninstall.py`   | Remove the LaunchAgent                                   |
 
 `hotkey.py` and `inject.py` are isolated so a future Windows port only needs to

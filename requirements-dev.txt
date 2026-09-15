@@ -1,0 +1,4 @@
+# Build-only dependencies (not needed to run from source).
+# Used by scripts/build_app.sh to produce Voca.app and the .dmg.
+-r requirements.txt
+py2app>=0.28

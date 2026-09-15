@@ -19,6 +19,8 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 import numpy as np
 import mlx_whisper
 
+import speech
+
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 LANGUAGE = "en"  # English only — never detect or output other languages
 
@@ -52,11 +54,15 @@ def transcribe(
     """
     if audio is None or audio.size == 0:
         return ""
+    # Speech gate: skip silence/noise so Whisper doesn't hallucinate text.
+    if not speech.has_speech(audio):
+        return ""
     result = mlx_whisper.transcribe(
         audio,
         path_or_hf_repo=model,
         language=LANGUAGE,
         initial_prompt=_build_prompt(initial_prompt),
+        condition_on_previous_text=False,
     )
     return result["text"].strip()
 

@@ -17,10 +17,23 @@ import os
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
-# Prefer the locally vendored model dir; fall back to the HF cache by repo id.
-_LOCAL_DIR = os.path.join(os.path.dirname(__file__), "models", "bert-restore-punctuation")
 REPO = "felflare/bert-restore-punctuation"
-MODEL = _LOCAL_DIR if os.path.exists(os.path.join(_LOCAL_DIR, "config.json")) else REPO
+# Where the model may live: the app-support dir (downloaded on first launch by
+# firstrun.py) or an in-repo models/ dir (source install via setup_models.py).
+# Resolved at load time, not import time, since first-run downloads it later.
+_CANDIDATE_DIRS = [
+    os.path.expanduser(
+        "~/Library/Application Support/Voca/models/bert-restore-punctuation"
+    ),
+    os.path.join(os.path.dirname(__file__), "models", "bert-restore-punctuation"),
+]
+
+
+def _resolve_model() -> str:
+    for d in _CANDIDATE_DIRS:
+        if os.path.exists(os.path.join(d, "config.json")):
+            return d
+    return REPO  # fall back to the HF cache by repo id
 
 # felflare/bert-restore-punctuation ships generic LABEL_0..14 in its config, so
 # we map label index -> its real meaning here (rpunct's scheme). Each label is
@@ -53,8 +66,9 @@ def _load() -> bool:
     try:
         from transformers import AutoModelForTokenClassification, AutoTokenizer
 
-        _tokenizer = AutoTokenizer.from_pretrained(MODEL)
-        _model = AutoModelForTokenClassification.from_pretrained(MODEL)
+        model_path = _resolve_model()
+        _tokenizer = AutoTokenizer.from_pretrained(model_path)
+        _model = AutoModelForTokenClassification.from_pretrained(model_path)
         _model.eval()
         _available = True
     except Exception as exc:

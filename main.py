@@ -15,8 +15,15 @@ from __future__ import annotations
 import subprocess
 import threading
 
+import firstrun
+
+# Set Hugging Face offline mode from model presence BEFORE importing the ML
+# libraries below — transcribe/punctuate read HF_HUB_OFFLINE at import time.
+firstrun.configure_env()
+
 import rumps
 from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+from Foundation import NSBundle
 from PyObjCTools import AppHelper
 
 import audio
@@ -26,12 +33,45 @@ import formatting
 import hotkey
 import inject
 import punctuate
+import speech
 from transcribe import transcribe, warm_up
 
 # Menu bar title per state (emoji). These render fine now that the app launches
 # via the LaunchAgent in the GUI session; the earlier invisibility was the .app
 # launch method hiding the whole item, not the emoji itself.
-LOADING, READY, REC, BUSY, ERROR = "…", "🎙️", "🔴", "⏳", "⚠️"
+LOADING, READY, REC, BUSY, ERROR, DOWNLOADING = "…", "🎙️", "🔴", "⏳", "⚠️", "⬇"
+
+
+def _app_bundle_path() -> str | None:
+    """Path to the running Voca.app bundle, or None when run from source."""
+    path = NSBundle.mainBundle().bundlePath()
+    return path if path and path.endswith(".app") else None
+
+
+def _login_item_present() -> bool:
+    try:
+        out = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get the name of every login item'],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "Voca" in out.stdout
+    except Exception:
+        return False
+
+
+def _set_login_item(enable: bool) -> None:
+    if enable:
+        app = _app_bundle_path()
+        if not app:
+            raise RuntimeError("Start at Login needs the installed Voca.app.")
+        script = (
+            'tell application "System Events" to make login item at end '
+            f'with properties {{path:"{app}", hidden:false}}'
+        )
+    else:
+        script = 'tell application "System Events" to delete login item "Voca"'
+    subprocess.run(["osascript", "-e", script], check=True, timeout=5)
 
 
 class VocaApp(rumps.App):
@@ -60,8 +100,10 @@ class VocaApp(rumps.App):
             self.corr_menu,
             None,
             rumps.MenuItem("Edit Config…", callback=self._edit_config),
+            rumps.MenuItem("Start at Login", callback=self._toggle_login_item),
         ]
         self._rebuild_learning_menus()
+        self.menu["Start at Login"].state = _login_item_present()
 
         # Load the model off the main thread so the menu bar appears instantly.
         threading.Thread(target=self._startup, daemon=True).start()
@@ -81,6 +123,18 @@ class VocaApp(rumps.App):
     # keyboard injection run on the main thread (the tap attaches to the main
     # run loop, and macOS input-source calls must be main-thread).
     def _startup(self) -> None:
+        # First launch: download the models (with progress in the menu bar).
+        if not firstrun.models_present():
+            self._ui(self._set_title, DOWNLOADING)
+            try:
+                firstrun.ensure_models(
+                    lambda msg: self._ui(self._set_status, msg)
+                )
+            except Exception as exc:
+                self._ui(self._set_title, ERROR)
+                self._ui(self._set_status, f"Model download failed: {exc}")
+                return
+
         try:
             warm_up(self.cfg["model"])
         except Exception as exc:
@@ -95,14 +149,23 @@ class VocaApp(rumps.App):
         except Exception as exc:
             print(f"[main] punctuation model not loaded: {exc}")
 
+        # Warm the speech-gate VAD (silences Whisper's hallucinations).
+        try:
+            speech.warm_up()
+        except Exception as exc:
+            print(f"[main] VAD not loaded: {exc}")
+
         # Start the hotkey listener on the main thread.
         self._ui(self._activate)
 
     def _activate(self) -> None:
         """Main thread: start the event tap on the main run loop and go ready."""
         if not hotkey.accessibility_trusted():
+            # Pop the system prompt (adds Voca to the Accessibility list); the
+            # user enables it, then reopens Voca.
+            hotkey.request_accessibility()
             self._set_title(ERROR)
-            self._set_status("Grant Accessibility (System Settings) then restart")
+            self._set_status("Enable Voca under Accessibility, then reopen Voca")
             return
 
         try:
@@ -256,6 +319,13 @@ class VocaApp(rumps.App):
         return cb
 
     # --- menu actions -------------------------------------------------------
+    def _toggle_login_item(self, sender) -> None:
+        try:
+            _set_login_item(not sender.state)
+            sender.state = not sender.state
+        except Exception as exc:
+            rumps.alert("Voca", f"Couldn't change login item:\n{exc}")
+
     def _edit_config(self, _sender) -> None:
         subprocess.Popen(["open", "-t", config.CONFIG_PATH])
         # A banner needs an app bundle, which the LaunchAgent isn't, so it may
