@@ -127,6 +127,14 @@ returns at next login). Run it manually without installing: `python main.py`.
 
 Custom vocabulary is passed to Whisper as an `initial_prompt` to bias spelling.
 
+## Known limitations
+
+- **Very long single dictations.** The punctuation model has a 512 word-piece
+  limit (~350–400 spoken words). If you hold the key and talk past that in one
+  continuous take, words beyond the limit still appear but won't get added
+  commas/periods from the restoration step. Dictating in normal sentence-sized
+  bursts avoids this entirely.
+
 ## Project layout
 
 | File                     | Role                                                     |
