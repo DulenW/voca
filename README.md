@@ -1,6 +1,16 @@
-# Voca
+<p align="center">
+  <img src="assets/icon.png" alt="Voca" width="140">
+</p>
 
-**Local-first, system-wide push-to-talk dictation for macOS (Apple Silicon).**
+<h1 align="center">Voca</h1>
+
+<p align="center"><strong>Local-first, system-wide push-to-talk dictation for macOS (Apple Silicon).</strong></p>
+
+<p align="center">
+  <a href="https://github.com/DulenW/voca/releases">
+    <img src="https://img.shields.io/badge/⬇%20Download-1f6feb?style=for-the-badge&logoColor=white" alt="Download">
+  </a>
+</p>
 
 Hold a hotkey, speak, release — your words are transcribed on-device and pasted
 into whatever app is focused (Slack, VS Code, browser, anywhere). Everything
