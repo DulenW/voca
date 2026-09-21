@@ -20,6 +20,13 @@ pyperclip>=1.8.2
 # macOS menu bar app
 rumps>=0.4.0
 
+# macOS frameworks the app imports directly. rumps only pulls Cocoa, so these
+# must be listed explicitly or a fresh install breaks:
+#   Quartz              -> CGEventTap (global hotkey) + CGEvent (paste)
+#   ApplicationServices -> Accessibility (AXUIElement, AXIsProcessTrusted)
+pyobjc-framework-Quartz>=10
+pyobjc-framework-ApplicationServices>=10
+
 # Local English punctuation restoration (felflare/bert-restore-punctuation).
 # Runs on CPU/MPS via torch (pulled in transitively); used only during a
 # dictation, never at idle.

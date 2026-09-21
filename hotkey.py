@@ -14,6 +14,7 @@ Windows port swaps only these two files.
 
 from __future__ import annotations
 
+import queue
 import threading
 from typing import Callable, Optional
 
@@ -91,8 +92,11 @@ class PushToTalk:
     """Hold `key` to record; release to transcribe.
 
     start() must be called on the MAIN thread (it attaches the tap to the
-    current run loop). on_text receives the final transcript; transcription
-    runs on a worker thread so the run loop stays responsive.
+    current run loop). CRITICAL: the tap callback runs on the main run loop, so
+    it must NEVER block — audio open/close (which can hang in CoreAudio) would
+    freeze the whole app and make it impossible to even quit. So the callback
+    only flips a flag and posts commands to a background audio worker; all
+    mic and transcription work happens off the main thread.
     """
 
     def __init__(
@@ -116,6 +120,9 @@ class PushToTalk:
         self._recording = False
         self._tap = None
         self._source = None
+        # FIFO of "start"/"stop" so a start is always processed before its stop.
+        self._cmd_q: "queue.Queue[str]" = queue.Queue()
+        self._worker: Optional[threading.Thread] = None
 
     def _tap_callback(self, proxy, etype, event, refcon):
         # Re-enable the tap if the OS disables it (timeout / heavy input).
@@ -130,20 +137,35 @@ class PushToTalk:
         )
         if keycode == self._keycode and etype == Quartz.kCGEventFlagsChanged:
             pressed = bool(Quartz.CGEventGetFlags(event) & self._flag)
+            # Everything here is non-blocking: flag + a marshaled UI update +
+            # a queue put. No audio calls on the main thread.
             if pressed and not self._recording:
                 self._recording = True
-                self._recorder.start()
                 if self._on_press_cb:
                     self._on_press_cb()
+                self._cmd_q.put("start")
             elif not pressed and self._recording:
                 self._recording = False
-                clip = self._recorder.stop()
                 if self._on_release_cb:
                     self._on_release_cb()
-                threading.Thread(
-                    target=self._handle_clip, args=(clip,), daemon=True
-                ).start()
+                self._cmd_q.put("stop")
         return event  # listen-only; pass the event through untouched
+
+    def _audio_worker(self) -> None:
+        """Serialize mic open/close off the main thread. If CoreAudio ever
+        hangs here, only dictation stalls — the app itself stays responsive."""
+        while True:
+            cmd = self._cmd_q.get()
+            try:
+                if cmd == "start":
+                    self._recorder.start()
+                elif cmd == "stop":
+                    clip = self._recorder.stop()
+                    threading.Thread(
+                        target=self._handle_clip, args=(clip,), daemon=True
+                    ).start()
+            except Exception as exc:
+                print(f"[hotkey] audio {cmd} error: {exc}")
 
     def _handle_clip(self, clip) -> None:
         prompt = self._prompt_provider() if self._prompt_provider else None
@@ -156,6 +178,9 @@ class PushToTalk:
 
     def start(self) -> None:
         """Attach the event tap to the CURRENT run loop (must be the main one)."""
+        if self._worker is None:
+            self._worker = threading.Thread(target=self._audio_worker, daemon=True)
+            self._worker.start()
         mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,

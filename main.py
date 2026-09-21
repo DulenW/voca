@@ -202,32 +202,28 @@ class VocaApp(rumps.App):
         self._ui(self._set_status, "Transcribing…")
 
     def _on_text(self, text: str) -> None:
-        """Runs on a worker thread. Do the heavy text work here, then hand the
-        caret read + keyboard injection to the main thread."""
-        if not text:
-            self._ui(self._set_title, READY)
-            self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
-            return
-        text = corrections.apply_corrections(text)  # learned fixes
-        text = punctuate.restore(text)  # commas / periods / question marks
-        self._ui(self._deliver, text)
-
-    def _deliver(self, text: str) -> None:
-        """Main thread: read caret context, format, and paste."""
-        before, known = inject.caret_context()  # what's before the cursor
-        text = formatting.format_text(
-            text,
-            before=before,
-            context_known=known,
-            vocab_terms=[r["term"] for r in corrections.list_vocab()],
-        )
-        inject.inject_text(
-            text,
-            method=self.cfg["paste_method"],
-            restore_clipboard=self.cfg["restore_clipboard"],
-        )
-        self._set_title(READY)
-        self._set_status(f"Ready — hold {self.cfg['hotkey']}")
+        """Runs entirely on a worker thread — corrections, punctuation, caret
+        read, and paste. Nothing here touches the main run loop except the
+        marshaled status updates, so the app never freezes even if the caret
+        read (Accessibility) or paste stalls on an unresponsive target app.
+        Injection uses thread-safe Quartz events, so it's safe off-main."""
+        if text:
+            text = corrections.apply_corrections(text)  # learned fixes
+            text = punctuate.restore(text)  # commas / periods / question marks
+            before, known = inject.caret_context()  # what's before the cursor
+            text = formatting.format_text(
+                text,
+                before=before,
+                context_known=known,
+                vocab_terms=[r["term"] for r in corrections.list_vocab()],
+            )
+            inject.inject_text(
+                text,
+                method=self.cfg["paste_method"],
+                restore_clipboard=self.cfg["restore_clipboard"],
+            )
+        self._ui(self._set_title, READY)
+        self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
 
     # --- learning-layer menus ----------------------------------------------
     @staticmethod

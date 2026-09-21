@@ -100,12 +100,16 @@ class Recorder:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        try:
-            self._stream.stop()
-            self._stream.close()
-        except Exception as exc:
-            print(f"[audio] close error: {exc}")
+        # abort() stops immediately without waiting for buffers to drain (less
+        # likely to block than stop()). Guard each call so one failure doesn't
+        # skip the rest — we've already captured the frames.
+        stream = self._stream
         self._stream = None
+        for teardown in (stream.abort, stream.close):
+            try:
+                teardown()
+            except Exception as exc:
+                print(f"[audio] {teardown.__name__} error: {exc}")
 
         if not self._frames:
             return np.zeros(0, dtype=np.float32)

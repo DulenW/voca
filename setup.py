@@ -66,8 +66,8 @@ OPTIONS = {
         "CFBundleName": "Voca",
         "CFBundleDisplayName": "Voca",
         "CFBundleIdentifier": "com.dulenw.voca",
-        "CFBundleShortVersionString": "1.1.0",
-        "CFBundleVersion": "1.1.0",
+        "CFBundleShortVersionString": "1.1.1",
+        "CFBundleVersion": "1.1.1",
         "LSUIElement": True,  # menu-bar only, no Dock icon
         "LSMinimumSystemVersion": "13.0",
         "NSMicrophoneUsageDescription":
