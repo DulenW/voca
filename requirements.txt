@@ -34,4 +34,6 @@ transformers>=4.40,<5
 
 # Voice-activity detection to gate out silence/noise before transcription,
 # so Whisper doesn't hallucinate text. Tiny on-device model; runs on torch.
-silero-vad>=5.1
+# Pinned to 6.2.1: 6.2.2 hard-imports onnxruntime at package load, which we
+# don't bundle (we use the torch JIT model), breaking the app bundle.
+silero-vad==6.2.1
