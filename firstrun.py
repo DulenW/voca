@@ -27,9 +27,10 @@ MODELS_DIR = os.path.join(APP_SUPPORT, "models")
 _HF_HUB = os.path.expanduser("~/.cache/huggingface/hub")
 
 # Public base URL of the Cloudflare R2 bucket hosting the models (NO trailing
-# slash), e.g. "https://pub-xxxx.r2.dev". Empty => download from Hugging Face.
-# Files are expected at {MODELS_BASE_URL}/{folder}/{filename}.
-MODELS_BASE_URL = ""
+# slash). Empty => download from Hugging Face. Files are served at
+# {MODELS_BASE_URL}/{folder}/{filename}. Downloads use curl (IPv4-resilient +
+# resumable); Hugging Face is the automatic fallback if R2 is unreachable.
+MODELS_BASE_URL = "https://pub-d6cf05567a024442890f544a335ff23f.r2.dev"
 
 WHISPER = "mlx-community/whisper-large-v3-turbo"
 _DEFAULT_CLEANUP = "mlx-community/Qwen2.5-3B-Instruct-4bit"
