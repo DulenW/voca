@@ -19,6 +19,7 @@ import threading
 from typing import Callable, Optional
 
 import Quartz
+import sysaudio
 from CoreFoundation import (
     CFMachPortCreateRunLoopSource,
     CFRunLoopAddSource,
@@ -108,6 +109,9 @@ class PushToTalk:
         initial_prompt_provider: Optional[Callable[[], Optional[str]]] = None,
         on_press_cb: Optional[Callable[[], None]] = None,
         on_release_cb: Optional[Callable[[], None]] = None,
+        on_idle_cb: Optional[Callable[[], None]] = None,
+        mute_system_audio: bool = True,
+        streaming: bool = False,
     ):
         self._recorder = recorder
         self._transcribe = transcribe_fn
@@ -117,12 +121,32 @@ class PushToTalk:
         self._prompt_provider = initial_prompt_provider
         self._on_press_cb = on_press_cb
         self._on_release_cb = on_release_cb
+        # Fired when all transcription work has drained and we're back to ready.
+        self._on_idle_cb = on_idle_cb
+        # Silence the speakers while recording so the mic doesn't pick up music
+        # or video playing on this Mac. None = feature disabled.
+        self._mute = sysaudio.OutputMute() if mute_system_audio else None
         self._recording = False
         self._tap = None
         self._source = None
         # FIFO of "start"/"stop" so a start is always processed before its stop.
         self._cmd_q: "queue.Queue[str]" = queue.Queue()
         self._worker: Optional[threading.Thread] = None
+        # Chunked (near-real-time) mode: phrases are transcribed and pasted as
+        # they complete, instead of one transcription on release.
+        self._streaming = streaming
+        # A single worker drains this FIFO so phrases are pasted strictly in
+        # order (each paste lands before the next chunk reads the caret).
+        self._chunk_q: "queue.Queue[object]" = queue.Queue()
+        self._chunk_worker: Optional[threading.Thread] = None
+        # Count of enqueued-but-not-yet-delivered phrases; when it hits 0 after
+        # release we're idle. Guarded because the count is touched from the
+        # capture thread (enqueue) and the chunk worker (deliver).
+        self._pending = 0
+        self._pending_lock = threading.Lock()
+        # Last phrase transcribed this hold, fed to the next chunk as context so
+        # words stay coherent across phrase boundaries. Reset on each new hold.
+        self._last_text = ""
 
     def _tap_callback(self, proxy, etype, event, refcon):
         # Re-enable the tap if the OS disables it (timeout / heavy input).
@@ -158,29 +182,91 @@ class PushToTalk:
             cmd = self._cmd_q.get()
             try:
                 if cmd == "start":
-                    self._recorder.start()
+                    # Fresh hold: forget the previous hold's trailing context.
+                    self._last_text = ""
+                    # Mute BEFORE opening the mic so nothing leaks in the gap.
+                    if self._mute is not None:
+                        self._mute.mute()
+                    # Streaming: hand the recorder our chunk sink so phrases
+                    # flow in as pauses are detected.
+                    self._recorder.start(
+                        on_chunk=self._enqueue_chunk if self._streaming else None
+                    )
                 elif cmd == "stop":
+                    # stop() flushes the trailing phrase (streaming) or returns
+                    # the whole clip (batch) before the mic is closed.
                     clip = self._recorder.stop()
-                    threading.Thread(
-                        target=self._handle_clip, args=(clip,), daemon=True
-                    ).start()
+                    # Restore the speakers as soon as the mic is closed.
+                    if self._mute is not None:
+                        self._mute.restore()
+                    if self._streaming:
+                        # Phrases were enqueued as they completed. If none were
+                        # (silence held), we're already idle.
+                        self._maybe_idle()
+                    else:
+                        threading.Thread(
+                            target=self._handle_clip, args=(clip,), daemon=True
+                        ).start()
             except Exception as exc:
                 print(f"[hotkey] audio {cmd} error: {exc}")
+                # Never leave the speakers muted if start/stop blew up mid-way.
+                if self._mute is not None:
+                    self._mute.restore()
 
     def _handle_clip(self, clip) -> None:
+        """Batch mode: transcribe the whole clip and deliver it, then go idle."""
         prompt = self._prompt_provider() if self._prompt_provider else None
         try:
             text = self._transcribe(clip, initial_prompt=prompt)
+            self._on_text(text)
         except Exception as exc:
             print(f"[hotkey] transcription error: {exc}")
-            return
-        self._on_text(text)
+        if self._on_idle_cb:
+            self._on_idle_cb()
+
+    # --- chunked (near-real-time) path -------------------------------------
+    def _enqueue_chunk(self, clip) -> None:
+        """Recorder callback (capture thread): queue a phrase for transcription.
+        Must stay non-blocking so capture never stalls."""
+        with self._pending_lock:
+            self._pending += 1
+        self._chunk_q.put(clip)
+
+    def _chunk_loop(self) -> None:
+        """Transcribe and deliver phrases one at a time, in order. Serializing
+        here is what keeps pastes ordered and lets each chunk's caret read see
+        the previous chunk already inserted."""
+        while True:
+            clip = self._chunk_q.get()
+            prompt = self._prompt_provider() if self._prompt_provider else None
+            try:
+                text = self._transcribe(
+                    clip, initial_prompt=prompt, prev_text=self._last_text or None
+                )
+                if text:
+                    self._last_text = text  # context for the next phrase
+                self._on_text(text)
+            except Exception as exc:
+                print(f"[hotkey] chunk transcription error: {exc}")
+            with self._pending_lock:
+                self._pending -= 1
+            self._maybe_idle()
+
+    def _maybe_idle(self) -> None:
+        """Go back to ready once the key is released and the queue has drained."""
+        with self._pending_lock:
+            done = self._pending <= 0
+        if done and not self._recording and self._on_idle_cb:
+            self._on_idle_cb()
 
     def start(self) -> None:
         """Attach the event tap to the CURRENT run loop (must be the main one)."""
         if self._worker is None:
             self._worker = threading.Thread(target=self._audio_worker, daemon=True)
             self._worker.start()
+        if self._streaming and self._chunk_worker is None:
+            self._chunk_worker = threading.Thread(target=self._chunk_loop, daemon=True)
+            self._chunk_worker.start()
         mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,

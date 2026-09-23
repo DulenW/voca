@@ -21,6 +21,18 @@ import firstrun
 # libraries below — transcribe/punctuate read HF_HUB_OFFLINE at import time.
 firstrun.configure_env()
 
+# Import torch on the MAIN thread, once, before any background thread can.
+# torch's C++ dispatcher init (libtorch, c10::parseDispatchKey) is NOT safe to
+# trigger from a worker thread while mlx is also initializing Metal — doing so
+# segfaults intermittently (SIGSEGV in initDispatchBindings during `import
+# torch`). The punctuation model and VAD both import torch lazily on the
+# startup thread, so we force its one-time init here first; those later imports
+# then just hit the module cache. Guarded so a torch-less setup still runs.
+try:
+    import torch  # noqa: F401
+except Exception as exc:
+    print(f"[main] torch preload skipped: {exc}")
+
 import rumps
 from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 from Foundation import NSBundle
@@ -179,6 +191,9 @@ class VocaApp(rumps.App):
                 initial_prompt_provider=corrections.vocab_prompt,
                 on_press_cb=self._on_press,
                 on_release_cb=self._on_release,
+                on_idle_cb=self._on_idle,
+                mute_system_audio=self.cfg["mute_system_audio"],
+                streaming=self.cfg["streaming"],
             )
             self._ptt.start()
         except Exception as exc:
@@ -190,8 +205,13 @@ class VocaApp(rumps.App):
         self._set_status(f"Ready — hold {self.cfg['hotkey']}")
 
     # --- dictation flow -----------------------------------------------------
-    def _transcribe(self, clip, initial_prompt=None) -> str:
-        return transcribe(clip, model=self.cfg["model"], initial_prompt=initial_prompt)
+    def _transcribe(self, clip, initial_prompt=None, prev_text=None) -> str:
+        return transcribe(
+            clip,
+            model=self.cfg["model"],
+            initial_prompt=initial_prompt,
+            prev_text=prev_text,
+        )
 
     def _on_press(self) -> None:
         self._ui(self._set_title, REC)
@@ -202,26 +222,36 @@ class VocaApp(rumps.App):
         self._ui(self._set_status, "Transcribing…")
 
     def _on_text(self, text: str) -> None:
-        """Runs entirely on a worker thread — corrections, punctuation, caret
-        read, and paste. Nothing here touches the main run loop except the
-        marshaled status updates, so the app never freezes even if the caret
-        read (Accessibility) or paste stalls on an unresponsive target app.
-        Injection uses thread-safe Quartz events, so it's safe off-main."""
-        if text:
-            text = corrections.apply_corrections(text)  # learned fixes
-            text = punctuate.restore(text)  # commas / periods / question marks
-            before, known = inject.caret_context()  # what's before the cursor
-            text = formatting.format_text(
-                text,
-                before=before,
-                context_known=known,
-                vocab_terms=[r["term"] for r in corrections.list_vocab()],
-            )
-            inject.inject_text(
-                text,
-                method=self.cfg["paste_method"],
-                restore_clipboard=self.cfg["restore_clipboard"],
-            )
+        """Deliver one transcript (a whole clip in batch mode, or one phrase in
+        chunked mode) into the focused app. Runs entirely on a worker thread —
+        corrections, punctuation, caret read, and paste. Nothing here touches
+        the main run loop, so the app never freezes even if the caret read
+        (Accessibility) or paste stalls on an unresponsive target app.
+        Injection uses thread-safe Quartz events, so it's safe off-main.
+
+        In chunked mode the caret read sees the previous phrase already pasted,
+        so cross-phrase spacing and capitalization fall out for free."""
+        if not text:
+            return
+        text = corrections.apply_corrections(text)  # learned fixes
+        text = punctuate.restore(text)  # commas / periods / question marks
+        before, known = inject.caret_context()  # what's before the cursor
+        text = formatting.format_text(
+            text,
+            before=before,
+            context_known=known,
+            vocab_terms=[r["term"] for r in corrections.list_vocab()],
+        )
+        inject.inject_text(
+            text,
+            method=self.cfg["paste_method"],
+            restore_clipboard=self.cfg["restore_clipboard"],
+        )
+
+    def _on_idle(self) -> None:
+        """All transcription has drained — back to ready. (Status lives here,
+        not in _on_text, so a phrase finishing mid-hold doesn't flip us out of
+        the recording state.)"""
         self._ui(self._set_title, READY)
         self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
 

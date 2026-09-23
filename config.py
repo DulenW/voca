@@ -18,6 +18,13 @@ DEFAULTS = {
     "model": "mlx-community/whisper-large-v3-turbo",
     "restore_clipboard": True,  # restore previous clipboard after pasting
     "paste_method": "paste",  # "paste" (Cmd+V) or "type" (keystrokes)
+    "mute_system_audio": True,  # mute the speakers while recording so the mic
+    # doesn't capture (and transcribe) music/video playing on this Mac
+    "streaming": False,  # accuracy-first default: transcribe the whole clip on
+    # release (full context). True = near-real-time, phrase-by-phrase at pauses
+    # while you hold (faster feel, slightly lower accuracy).
+    # For higher accuracy at the cost of speed, set "model" above to
+    # "mlx-community/whisper-large-v3" (a larger, slower, ~3GB download).
 }
 
 

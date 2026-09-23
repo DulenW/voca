@@ -24,6 +24,13 @@ import speech
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 LANGUAGE = "en"  # English only — never detect or output other languages
 
+# NOTE: mlx-whisper's decoder does not implement beam search (it raises
+# "Beam search decoder is not yet implemented" if beam_size is set), so we use
+# greedy decoding at temperature 0 with mlx-whisper's built-in temperature
+# fallback — the most accurate path this backend offers. Accuracy is gained
+# instead from full-utterance context (batch mode), the optional larger model,
+# and the AI cleanup layer.
+
 # A capitalized, well-punctuated primer. Whisper continues in the style of its
 # initial_prompt, so this biases it toward proper capitalization and punctuation
 # (periods, commas, question marks). Custom vocab is appended to the same prompt
@@ -34,22 +41,29 @@ _STYLE_PRIMER = (
 )
 
 
-def _build_prompt(vocab: str | None) -> str:
-    """Combine the punctuation/capitalization primer with the custom vocab."""
+def _build_prompt(vocab: str | None, prev_text: str | None = None) -> str:
+    """Combine the punctuation/capitalization primer with the custom vocab and,
+    in streaming mode, the previous phrase — so the model has continuity across
+    phrases (the tail of the prompt is the immediate preceding context)."""
+    parts = [_STYLE_PRIMER]
     if vocab:
-        return f"{_STYLE_PRIMER} Vocabulary: {vocab}."
-    return _STYLE_PRIMER
+        parts.append(f"Vocabulary: {vocab}.")
+    if prev_text:
+        parts.append(prev_text.strip())
+    return " ".join(parts)
 
 
 def transcribe(
     audio: np.ndarray,
     model: str = DEFAULT_MODEL,
     initial_prompt: str | None = None,
+    prev_text: str | None = None,
 ) -> str:
     """Transcribe 16kHz mono float32 audio to English text.
 
-    initial_prompt carries the custom vocab (Phase 6); it's wrapped in a
-    punctuation primer so output is properly capitalized and punctuated.
+    initial_prompt carries the custom vocab; it's wrapped in a punctuation
+    primer so output is properly capitalized and punctuated. prev_text is the
+    previous phrase (streaming only), added as preceding context for continuity.
     Returns the stripped transcript, or "" for empty/near-silent input.
     """
     if audio is None or audio.size == 0:
@@ -61,7 +75,7 @@ def transcribe(
         audio,
         path_or_hf_repo=model,
         language=LANGUAGE,
-        initial_prompt=_build_prompt(initial_prompt),
+        initial_prompt=_build_prompt(initial_prompt, prev_text),
         condition_on_previous_text=False,
     )
     return result["text"].strip()
