@@ -47,6 +47,7 @@ import hotkey
 import inject
 import punctuate
 import speech
+import uninstall
 from transcribe import transcribe, warm_up
 
 # Menu bar title per state (emoji). These render fine now that the app launches
@@ -114,6 +115,8 @@ class VocaApp(rumps.App):
             None,
             rumps.MenuItem("Edit Config…", callback=self._edit_config),
             rumps.MenuItem("Start at Login", callback=self._toggle_login_item),
+            None,
+            rumps.MenuItem("Uninstall Voca…", callback=self._uninstall),
         ]
         self._rebuild_learning_menus()
         self.menu["Start at Login"].state = _login_item_present()
@@ -369,6 +372,36 @@ class VocaApp(rumps.App):
             sender.state = not sender.state
         except Exception as exc:
             rumps.alert("Voca", f"Couldn't change login item:\n{exc}")
+
+    def _uninstall(self, _sender) -> None:
+        """Uninstall Voca: delete the downloaded models (they're re-downloadable)
+        and move the app and your settings to the Trash, then quit."""
+        gb = uninstall.freed_bytes() / 1e9
+        body = (
+            f"This frees about {gb:.1f} GB.\n\n"
+            "• The downloaded models are deleted (you can re-download them any "
+            "time by reinstalling).\n"
+            "• Voca and your settings/vocabulary are moved to the Trash — empty "
+            "the Trash to finish reclaiming space.\n\n"
+            "Voca will then quit."
+        )
+        if not rumps.alert(
+            title="Uninstall Voca?", message=body, ok="Uninstall", cancel="Cancel"
+        ):
+            return
+        # Best-effort: turn off Start at Login before removing the agent.
+        try:
+            if _login_item_present():
+                _set_login_item(False)
+        except Exception as exc:
+            print(f"[main] could not remove login item: {exc}")
+        failed = uninstall.run()
+        if failed:
+            rumps.alert(
+                "Voca",
+                "Some items couldn't be moved to the Trash:\n" + "\n".join(failed),
+            )
+        rumps.quit_application()
 
     def _edit_config(self, _sender) -> None:
         subprocess.Popen(["open", "-t", config.CONFIG_PATH])

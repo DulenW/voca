@@ -108,8 +108,10 @@ Your vocabulary and corrections are stored in
 ## Updating / uninstalling
 
 - **Update:** download the newer `Voca.dmg` and replace the app in Applications.
-- **Uninstall:** quit Voca, drag **Voca** from Applications to the Trash. To also
-  remove models and settings, delete `~/Library/Application Support/Voca`.
+- **Uninstall:** click the menu bar icon → **Uninstall Voca…**. It deletes the
+  downloaded models (~3.4 GB) and moves Voca and your settings to the Trash, then
+  quits — empty the Trash to reclaim the space. (Dragging the app to the Trash by
+  itself leaves the models behind, since macOS runs no cleanup code at that point.)
 
 ## Run from source (developers)
 
@@ -128,7 +130,7 @@ without installing.
 
 ```bash
 pip install -r requirements-dev.txt
-bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.2.1.dmg
+bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.3.0.dmg
 ```
 
 ## Troubleshooting
@@ -190,6 +192,7 @@ spelling.
 | `sysaudio.py`            | Mute system output while recording — **platform-specific**|
 | `config.py`              | Load/save JSON config                                    |
 | `firstrun.py`            | First-launch model download                              |
+| `uninstall.py`           | "Uninstall Voca…" — remove models + app (to Trash)       |
 | `setup.py`               | py2app build config for `Voca.app`                       |
 | `scripts/build_app.sh`   | Build `Voca.app` + `.dmg`                                |
 | `scripts/setup_models.py`| One-time model download (source install)                |
