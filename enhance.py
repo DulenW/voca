@@ -111,7 +111,13 @@ def _load_local(repo: str):
 
 
 def _run_local(text: str, system: str, repo: str) -> str:
-    pair = _load_local(repo)
+    # Don't load (or trigger any download) until the model is fully present —
+    # e.g. while it's still downloading in the background on first run.
+    import firstrun
+
+    if not firstrun._model_present(repo):
+        return text
+    pair = _load_local(firstrun.resolved_model_path(repo))
     if not pair:
         return text
     model, tokenizer = pair
@@ -167,10 +173,15 @@ def _run_cloud(text: str, system: str, model_id: str, api_key: str) -> str:
 
 # --- public API -------------------------------------------------------------
 def warm_up(cfg: dict) -> None:
-    """Preload the local model (no-op for off/cloud). Called at app startup on
-    the worker thread so the first dictation isn't slow."""
-    if cfg.get("cleanup_backend") == "local":
-        _load_local(cfg.get("cleanup_model_local") or DEFAULT_LOCAL_MODEL)
+    """Preload the local model when it's already downloaded (no-op otherwise, so
+    it never triggers a download here — firstrun owns that)."""
+    if cfg.get("cleanup_backend") != "local":
+        return
+    repo = cfg.get("cleanup_model_local") or DEFAULT_LOCAL_MODEL
+    import firstrun
+
+    if firstrun._model_present(repo):
+        _load_local(firstrun.resolved_model_path(repo))
 
 
 def enhance(text: str, vocab_terms: list[str] | None, cfg: dict) -> str:

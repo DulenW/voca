@@ -19,6 +19,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 import numpy as np
 import mlx_whisper
 
+import firstrun
 import speech
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
@@ -100,7 +101,9 @@ def transcribe(
         return ""
     result = mlx_whisper.transcribe(
         audio,
-        path_or_hf_repo=model,
+        # Load from the local app-support dir when present (self-hosted models),
+        # else the HF cache / repo id.
+        path_or_hf_repo=firstrun.resolved_model_path(model),
         language=LANGUAGE,
         initial_prompt=_build_prompt(initial_prompt, prev_text),
         condition_on_previous_text=False,
@@ -114,4 +117,4 @@ def warm_up(model: str = DEFAULT_MODEL) -> None:
     Called once at app start (Phase 5) so the first real dictation is fast.
     """
     silent = np.zeros(1600, dtype=np.float32)  # 0.1s of silence
-    mlx_whisper.transcribe(silent, path_or_hf_repo=model)
+    mlx_whisper.transcribe(silent, path_or_hf_repo=firstrun.resolved_model_path(model))

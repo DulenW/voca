@@ -130,7 +130,7 @@ without installing.
 
 ```bash
 pip install -r requirements-dev.txt
-bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.3.0.dmg
+bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.4.0.dmg
 ```
 
 ## Troubleshooting

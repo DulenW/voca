@@ -39,6 +39,10 @@ DEFAULTS = {
 
     "boost_quiet_speech": True,  # auto-amplify soft/low-volume voices before
     # transcription (boost-only, capped) so a quiet voice is picked up reliably.
+
+    "models_base_url": "",  # optional: base URL of a bucket hosting the models
+    # (e.g. a Cloudflare R2 public URL). Overrides the built-in default; empty
+    # falls back to it, then to Hugging Face.
 }
 
 

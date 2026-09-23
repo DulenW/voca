@@ -3,13 +3,13 @@
 #
 #   bash scripts/build_app.sh
 #
-# Produces dist/Voca.app and dist/Voca-1.3.0.dmg. Requires the venv with deps
+# Produces dist/Voca.app and dist/Voca-1.4.0.dmg. Requires the venv with deps
 # plus py2app (pip install -r requirements-dev.txt). Models are NOT bundled —
 # the app downloads them on first launch.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-VERSION="1.3.0"
+VERSION="1.4.0"
 DMG="dist/Voca-${VERSION}.dmg"
 
 # shellcheck disable=SC1091

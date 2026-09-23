@@ -139,18 +139,17 @@ class VocaApp(rumps.App):
     # keyboard injection run on the main thread (the tap attaches to the main
     # run loop, and macOS input-source calls must be main-thread).
     def _startup(self) -> None:
-        # First launch: download the models (with progress in the menu bar).
-        if not firstrun.models_present():
+        prog = lambda msg: self._ui(self._set_status, msg)  # noqa: E731
+
+        # 1. Whisper first — the app can't dictate without it. Download + warm.
+        if not firstrun.whisper_present():
             self._ui(self._set_title, DOWNLOADING)
             try:
-                firstrun.ensure_models(
-                    lambda msg: self._ui(self._set_status, msg)
-                )
+                firstrun.ensure_whisper(prog)
             except Exception as exc:
                 self._ui(self._set_title, ERROR)
                 self._ui(self._set_status, f"Model download failed: {exc}")
                 return
-
         try:
             warm_up(self.cfg["model"])
         except Exception as exc:
@@ -158,17 +157,16 @@ class VocaApp(rumps.App):
             self._ui(self._set_status, f"Model failed to load: {exc}")
             return
 
-        # Warm the AI cleanup model (no-op unless the local backend is on) so the
-        # first dictation isn't slowed by a cold model load.
+        # 2. Warm the AI cleanup model IF it's already downloaded — done here,
+        # before the tap goes live, so MLX never runs while a dictation does.
+        # (No-op when the model isn't present yet; it then loads lazily on the
+        # worker thread once the background download below finishes.)
         try:
             enhance.warm_up(self.cfg)
         except Exception as exc:
             print(f"[main] cleanup model not loaded: {exc}")
 
-        # The rule-based punctuation model is only used when AI cleanup is off
-        # (the AI otherwise handles punctuation), and it isn't even downloaded
-        # for cleanup users — so only warm it when it's actually needed.
-        if self.cfg["cleanup_backend"] == "off":
+        if self.cfg["cleanup_backend"] == "off" and firstrun.punct_present():
             try:
                 punctuate.warm_up()
             except Exception as exc:
@@ -180,8 +178,22 @@ class VocaApp(rumps.App):
         except Exception as exc:
             print(f"[main] VAD not loaded: {exc}")
 
-        # Start the hotkey listener on the main thread.
+        # 3. Go ready — dictation works now. Until the cleanup model arrives,
+        # dictations paste raw transcript (enhance() degrades gracefully).
         self._ui(self._activate)
+
+        # 4. Download the cleanup (and, if needed, punctuation) model in the
+        # background. Pure I/O — no MLX — so it can't deadlock a dictation; the
+        # model then loads lazily on the worker thread on first use.
+        if not firstrun.cleanup_present() or (
+            self.cfg["cleanup_backend"] == "off" and not firstrun.punct_present()
+        ):
+            try:
+                firstrun.ensure_cleanup(prog)
+            except Exception as exc:
+                print(f"[main] cleanup model download failed: {exc}")
+            finally:
+                self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
 
     def _activate(self) -> None:
         """Main thread: start the event tap on the main run loop and go ready."""
