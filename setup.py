@@ -35,6 +35,8 @@ PACKAGES = [
     "rumps",
     "mlx",
     "mlx_whisper",
+    "mlx_lm",  # on-device AI cleanup LLM (enhance.py, local backend)
+    "anthropic",  # optional cloud cleanup backend (used only with a user key)
     "transformers",
     "torch",
     "numpy",
@@ -66,8 +68,8 @@ OPTIONS = {
         "CFBundleName": "Voca",
         "CFBundleDisplayName": "Voca",
         "CFBundleIdentifier": "com.dulenw.voca",
-        "CFBundleShortVersionString": "1.1.1",
-        "CFBundleVersion": "1.1.1",
+        "CFBundleShortVersionString": "1.2.0",
+        "CFBundleVersion": "1.2.0",
         "LSUIElement": True,  # menu-bar only, no Dock icon
         "LSMinimumSystemVersion": "13.0",
         "NSMicrophoneUsageDescription":

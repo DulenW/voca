@@ -2,9 +2,10 @@
 
     python scripts/setup_models.py
 
-Downloads both on-device models so the app can run fully offline afterwards:
-  - mlx-community/whisper-large-v3-turbo  -> Hugging Face cache (used by mlx)
-  - felflare/bert-restore-punctuation     -> ./models/ (English punctuation)
+Downloads the on-device models so the app can run fully offline afterwards:
+  - mlx-community/whisper-large-v3-turbo   -> Hugging Face cache (used by mlx)
+  - felflare/bert-restore-punctuation      -> ./models/ (English punctuation)
+  - mlx-community/Qwen2.5-3B-Instruct-4bit -> HF cache (AI cleanup, ~1.8 GB)
 
 The punctuation model is fetched file-by-file from the HF CDN (resolve URLs)
 rather than via the metadata API, which is more reliable on flaky networks.
@@ -16,6 +17,7 @@ import urllib.request
 os.environ["HF_HUB_OFFLINE"] = "0"
 
 WHISPER = "mlx-community/whisper-large-v3-turbo"
+CLEANUP_LLM = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 PUNCT_REPO = "felflare/bert-restore-punctuation"
 PUNCT_FILES = [
     "config.json",
@@ -49,11 +51,21 @@ def _download_whisper() -> None:
     print("Whisper model cached.")
 
 
+def _download_cleanup_llm() -> None:
+    from huggingface_hub import snapshot_download
+
+    print(f"Downloading {CLEANUP_LLM} (AI cleanup, ~1.8 GB) ...")
+    snapshot_download(CLEANUP_LLM)
+    print("AI cleanup model cached.")
+
+
 def main() -> int:
     print("Punctuation model (felflare/bert-restore-punctuation):")
     _download_punctuation()
     print()
     _download_whisper()
+    print()
+    _download_cleanup_llm()
     print("\nDone. Models ready; the app can run offline.")
     return 0
 
