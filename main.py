@@ -205,6 +205,7 @@ class VocaApp(rumps.App):
                 on_press_cb=self._on_press,
                 on_release_cb=self._on_release,
                 on_idle_cb=self._on_idle,
+                on_stall_cb=self._on_stall,
                 mute_system_audio=self.cfg["mute_system_audio"],
                 streaming=self.cfg["streaming"],
             )
@@ -275,6 +276,19 @@ class VocaApp(rumps.App):
         the recording state.)"""
         self._ui(self._set_title, READY)
         self._ui(self._set_status, f"Ready — hold {self.cfg['hotkey']}")
+
+    def _on_stall(self) -> None:
+        """The watchdog recovered a wedged transcription. Let the user know
+        (the app is usable again; that dictation was dropped)."""
+        def notify() -> None:
+            try:
+                rumps.notification(
+                    "Voca", "Transcription recovered",
+                    "That dictation stalled and was skipped. Voca is ready again.",
+                )
+            except Exception:
+                pass
+        self._ui(notify)
 
     # --- learning-layer menus ----------------------------------------------
     @staticmethod

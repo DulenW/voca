@@ -16,7 +16,14 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Callable, Optional
+
+# A single transcription+cleanup job that runs longer than this is treated as a
+# wedged MLX/Metal call (they can deadlock). The watchdog then recovers the UI
+# and restarts the worker so the app never stays stuck on "Transcribing…".
+# Well above a slow real dictation (a cold model load + long clip is ~15s).
+WORK_TIMEOUT = 45.0
 
 import Quartz
 import sysaudio
@@ -110,6 +117,7 @@ class PushToTalk:
         on_press_cb: Optional[Callable[[], None]] = None,
         on_release_cb: Optional[Callable[[], None]] = None,
         on_idle_cb: Optional[Callable[[], None]] = None,
+        on_stall_cb: Optional[Callable[[], None]] = None,
         mute_system_audio: bool = True,
         streaming: bool = False,
     ):
@@ -123,6 +131,8 @@ class PushToTalk:
         self._on_release_cb = on_release_cb
         # Fired when all transcription work has drained and we're back to ready.
         self._on_idle_cb = on_idle_cb
+        # Fired when the watchdog recovers a wedged worker (to notify the user).
+        self._on_stall_cb = on_stall_cb
         # Silence the speakers while recording so the mic doesn't pick up music
         # or video playing on this Mac. None = feature disabled.
         self._mute = sysaudio.OutputMute() if mute_system_audio else None
@@ -151,6 +161,11 @@ class PushToTalk:
         # Last phrase transcribed this hold, fed to the next chunk as context so
         # words stay coherent across phrase boundaries. Reset on each new hold.
         self._last_text = ""
+        # Watchdog state: when the current job started (monotonic) or None when
+        # idle, and a generation id so a restarted worker supersedes a wedged one.
+        self._job_start: Optional[float] = None
+        self._worker_gen = 0
+        self._watchdog_thread: Optional[threading.Thread] = None
 
     def _tap_callback(self, proxy, etype, event, refcon):
         # Re-enable the tap if the OS disables it (timeout / heavy input).
@@ -227,26 +242,62 @@ class PushToTalk:
     # Streaming recorder callback (runs on the capture thread) — same path.
     _enqueue_chunk = _enqueue_clip
 
-    def _work_loop(self) -> None:
+    def _work_loop(self, gen: int) -> None:
         """Transcribe, clean up, and deliver clips one at a time, in order, all
         on THIS one thread (MLX is not safe across many threads). Serializing
         also keeps pastes ordered and lets each chunk's caret read see the
-        previous one already inserted."""
+        previous one already inserted.
+
+        `gen` is this worker's generation. If the watchdog restarts the worker
+        (after a wedged MLX call), it bumps the generation; a superseded worker
+        exits and never double-delivers, even if its wedged call later returns."""
         while True:
             clip = self._work_q.get()
-            prompt = self._prompt_provider() if self._prompt_provider else None
+            if gen != self._worker_gen:
+                return  # a watchdog restart superseded this worker
+            self._job_start = time.monotonic()  # arm the watchdog for this job
             try:
+                prompt = self._prompt_provider() if self._prompt_provider else None
                 text = self._transcribe(
                     clip, initial_prompt=prompt, prev_text=self._last_text or None
                 )
-                if text:
+                if gen == self._worker_gen and text:
                     self._last_text = text  # context for the next phrase
-                self._on_text(text)
+                    self._on_text(text)
             except Exception as exc:
                 print(f"[hotkey] transcription error: {exc}")
+            finally:
+                self._job_start = None  # disarm the watchdog
+            if gen != self._worker_gen:
+                return  # recovered while we worked; watchdog already reset state
             with self._pending_lock:
-                self._pending -= 1
+                self._pending = max(0, self._pending - 1)
             self._maybe_idle()
+
+    def _watchdog(self) -> None:
+        """Recover from a wedged MLX/Metal call: if a job runs past WORK_TIMEOUT,
+        reset the UI to ready and start a fresh worker so dictation keeps working
+        and the app never stays stuck on 'Transcribing…'. The wedged thread is
+        abandoned (superseded by generation); the main run loop stays responsive
+        throughout, so Quit always works too."""
+        while True:
+            time.sleep(5)
+            started = self._job_start
+            if started is None or (time.monotonic() - started) <= WORK_TIMEOUT:
+                continue
+            print(f"[hotkey] work stalled >{WORK_TIMEOUT:.0f}s — recovering worker")
+            self._job_start = None
+            with self._pending_lock:
+                self._pending = 0
+            self._worker_gen += 1  # supersede the wedged worker
+            self._work_thread = threading.Thread(
+                target=self._work_loop, args=(self._worker_gen,), daemon=True
+            )
+            self._work_thread.start()
+            if self._on_idle_cb:
+                self._on_idle_cb()
+            if self._on_stall_cb:
+                self._on_stall_cb()
 
     def _maybe_idle(self) -> None:
         """Go back to ready once the key is released and the queue has drained."""
@@ -261,8 +312,13 @@ class PushToTalk:
             self._worker = threading.Thread(target=self._audio_worker, daemon=True)
             self._worker.start()
         if self._work_thread is None:
-            self._work_thread = threading.Thread(target=self._work_loop, daemon=True)
+            self._worker_gen += 1
+            self._work_thread = threading.Thread(
+                target=self._work_loop, args=(self._worker_gen,), daemon=True
+            )
             self._work_thread.start()
+            self._watchdog_thread = threading.Thread(target=self._watchdog, daemon=True)
+            self._watchdog_thread.start()
         mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
