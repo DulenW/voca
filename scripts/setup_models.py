@@ -12,9 +12,15 @@ rather than via the metadata API, which is more reliable on flaky networks.
 """
 
 import os
-import urllib.request
 
 os.environ["HF_HUB_OFFLINE"] = "0"
+# Xet-accelerated downloads when hf_xet is installed (harmless if not).
+try:
+    import hf_xet  # noqa: F401
+
+    os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
+except Exception:
+    pass
 
 WHISPER = "mlx-community/whisper-large-v3-turbo"
 CLEANUP_LLM = "mlx-community/Qwen2.5-3B-Instruct-4bit"
@@ -31,15 +37,10 @@ PUNCT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models",
 
 
 def _download_punctuation() -> None:
+    from huggingface_hub import snapshot_download
+
     os.makedirs(PUNCT_DIR, exist_ok=True)
-    base = f"https://huggingface.co/{PUNCT_REPO}/resolve/main"
-    for name in PUNCT_FILES:
-        dest = os.path.join(PUNCT_DIR, name)
-        if os.path.exists(dest) and os.path.getsize(dest) > 0:
-            print(f"  {name}: already present")
-            continue
-        print(f"  downloading {name} ...")
-        urllib.request.urlretrieve(f"{base}/{name}", dest)
+    snapshot_download(PUNCT_REPO, local_dir=PUNCT_DIR, allow_patterns=PUNCT_FILES)
     print(f"Punctuation model ready in {PUNCT_DIR}")
 
 

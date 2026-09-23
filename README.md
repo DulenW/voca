@@ -35,7 +35,7 @@ Built and tested on a MacBook Air (Apple M4).
 - 🔋 **Battery friendly** — event-driven, no polling; the mic opens only while you hold the key; ~0% CPU at idle.
 - 📎 Menu bar app, no Dock icon. Optional start-at-login.
 
-**Requires macOS on Apple Silicon (M1–M4).** ~3.7 GB disk for the models (speech + on-device AI cleanup).
+**Requires macOS on Apple Silicon (M1–M4).** ~3.4 GB disk for the models (speech + on-device AI cleanup).
 
 ## Install
 
@@ -47,7 +47,7 @@ On first run:
 
 - **Microphone** — click *Allow* when prompted.
 - **Accessibility** — go to **System Settings → Privacy & Security → Accessibility** and enable **Voca** (needed for the global hotkey and pasting). Then quit and reopen Voca from the menu.
-- Voca **downloads ~3.7 GB of models once** (speech + on-device AI cleanup) — the menu bar shows progress. After that it runs fully offline.
+- Voca **downloads ~3.4 GB of models once** (speech + on-device AI cleanup) — the menu bar shows progress; downloads are resumable, so a slow connection won't lose progress. After that it runs fully offline.
 
 A `🎙️` icon appears in the menu bar and Voca starts automatically at login.
 
@@ -128,7 +128,7 @@ without installing.
 
 ```bash
 pip install -r requirements-dev.txt
-bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.2.0.dmg
+bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.2.1.dmg
 ```
 
 ## Troubleshooting
@@ -139,8 +139,9 @@ bash scripts/build_app.sh          # -> dist/Voca.app and dist/Voca-1.2.0.dmg
 - **Hotkey does nothing / `⚠️` icon.** Accessibility isn't granted. Enable
   **Voca** under System Settings → Privacy & Security → Accessibility, then quit
   and reopen Voca. (After an app update you may need to re-enable it.)
-- **First run is slow.** It's downloading ~3.7 GB of models once (speech + AI
-  cleanup); later runs load from cache and start fast.
+- **First run is slow.** It's downloading ~3.4 GB of models once (speech + AI
+  cleanup); downloads are resumable, so quitting and reopening resumes where it
+  left off. Later runs load from cache and start fast.
 - **Right Option types accents instead.** Pick a different `hotkey` in the config.
 
 ## How it works

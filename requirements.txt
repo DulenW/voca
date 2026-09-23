@@ -44,3 +44,7 @@ silero-vad==6.2.1
 # the user's own API key (opt-in). Both degrade to raw text if unavailable.
 mlx-lm>=0.31,<1
 anthropic>=0.40
+
+# Xet-accelerated, resumable model downloads on first launch. huggingface_hub
+# uses it automatically; firstrun.py also requests its high-performance mode.
+hf_xet>=1.1

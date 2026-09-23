@@ -155,25 +155,27 @@ class VocaApp(rumps.App):
             self._ui(self._set_status, f"Model failed to load: {exc}")
             return
 
-        # Punctuation model is optional: warm it if present, else degrade to
-        # Whisper's own punctuation (restore() becomes a no-op).
-        try:
-            punctuate.warm_up()
-        except Exception as exc:
-            print(f"[main] punctuation model not loaded: {exc}")
-
-        # Warm the speech-gate VAD (silences Whisper's hallucinations).
-        try:
-            speech.warm_up()
-        except Exception as exc:
-            print(f"[main] VAD not loaded: {exc}")
-
         # Warm the AI cleanup model (no-op unless the local backend is on) so the
         # first dictation isn't slowed by a cold model load.
         try:
             enhance.warm_up(self.cfg)
         except Exception as exc:
             print(f"[main] cleanup model not loaded: {exc}")
+
+        # The rule-based punctuation model is only used when AI cleanup is off
+        # (the AI otherwise handles punctuation), and it isn't even downloaded
+        # for cleanup users — so only warm it when it's actually needed.
+        if self.cfg["cleanup_backend"] == "off":
+            try:
+                punctuate.warm_up()
+            except Exception as exc:
+                print(f"[main] punctuation model not loaded: {exc}")
+
+        # Warm the speech-gate VAD (silences Whisper's hallucinations).
+        try:
+            speech.warm_up()
+        except Exception as exc:
+            print(f"[main] VAD not loaded: {exc}")
 
         # Start the hotkey listener on the main thread.
         self._ui(self._activate)
