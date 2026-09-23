@@ -255,19 +255,29 @@ def _ensure_model(model_id: str, label: str, progress) -> None:
     files = MODEL_MANIFEST.get(folder)
     base = _base_url()
 
-    if base and files:
-        try:
-            for name in files:
-                dest = os.path.join(dest_dir, name)
-                if not os.path.exists(dest):
-                    _download_file(
-                        f"{base}/{folder}/{name}", dest, label, progress
-                    )
-            return
-        except Exception as exc:
-            print(f"[firstrun] R2 download failed ({exc}); falling back to HF")
+    if files:
+        # Try each source via curl (IPv4-resilient + resumable): the R2 bucket
+        # first (if configured), then Hugging Face's direct file URLs. curl's
+        # Happy-Eyeballs falls back to IPv4, so a broken IPv6 route can't hang
+        # the download the way huggingface_hub's Python client can.
+        sources = []
+        if base:
+            sources.append((f"{base}/{folder}", "R2"))
+        sources.append(
+            (f"https://huggingface.co/{model_id}/resolve/main", "Hugging Face")
+        )
+        for prefix, name_of in sources:
+            try:
+                for name in files:
+                    dest = os.path.join(dest_dir, name)
+                    if not os.path.exists(dest):
+                        _download_file(f"{prefix}/{name}", dest, label, progress)
+                return
+            except Exception as exc:
+                print(f"[firstrun] {name_of} download failed ({exc}); trying next")
 
-    # Hugging Face fallback (also handles a user-overridden, non-default model).
+    # Unknown/overridden model with no manifest — let huggingface_hub discover
+    # and fetch the file list.
     progress(f"{label} (Hugging Face)…")
     from huggingface_hub import snapshot_download
 

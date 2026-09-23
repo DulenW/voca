@@ -18,6 +18,7 @@ config.json
 # Hugging Face / model caches (in case anything lands locally)
 .cache/
 models/
+models_upload/
 
 # py2app build outputs
 build/
