@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Callable, Optional
 
 import numpy as np
 import sounddevice as sd
+
+import chunker
 
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
 CHANNELS = 1  # mono
@@ -36,6 +39,9 @@ class Recorder:
         self._stop_flag = threading.Event()
         self._frames: list[np.ndarray] = []
         self._capture_rate = sample_rate  # actual device rate; may differ
+        # Chunked (near-real-time) mode: set per-recording via start(on_chunk=).
+        self._on_chunk: Optional[Callable[[np.ndarray], None]] = None
+        self._chunker: Optional[chunker.PhraseChunker] = None
 
     def _open_stream(self) -> None:
         # Prefer the target rate; if the device rejects it, fall back to its
@@ -54,6 +60,22 @@ class Recorder:
             )
             self._stream.start()
 
+    def _consume(self, data: np.ndarray) -> None:
+        """Route a freshly-read block: stream it to the chunker (near-real-time
+        mode) or buffer it for a single transcription on stop()."""
+        if self._chunker is not None:
+            self._chunker.feed(data.copy())
+        else:
+            self._frames.append(data.copy())
+
+    def _emit_chunk(self, raw: np.ndarray) -> None:
+        """Chunker callback: resample a phrase to 16k and hand it to the caller.
+        Runs on the capture thread; the callback must be non-blocking (it just
+        enqueues), so a slow transcription never stalls capture."""
+        if self._capture_rate != self.sample_rate:
+            raw = _resample(raw, self._capture_rate, self.sample_rate)
+        self._on_chunk(raw)
+
     def _read_loop(self) -> None:
         # Poll read_available and only read what's ready, so read() never blocks
         # waiting for the mic. This lets the loop check the stop flag promptly and
@@ -63,7 +85,7 @@ class Recorder:
                 avail = self._stream.read_available
                 if avail >= _BLOCKSIZE:
                     data, _overflowed = self._stream.read(_BLOCKSIZE)
-                    self._frames.append(data.copy())
+                    self._consume(data)
                 else:
                     time.sleep(0.01)
             except Exception as exc:  # stream closing / device error
@@ -74,17 +96,33 @@ class Recorder:
             remaining = self._stream.read_available
             if remaining > 0:
                 data, _ = self._stream.read(remaining)
-                self._frames.append(data.copy())
+                self._consume(data)
         except Exception:
             pass
+        # Chunked mode: flush the trailing phrase so the last words aren't lost.
+        if self._chunker is not None:
+            try:
+                self._chunker.flush()
+            except Exception as exc:
+                print(f"[audio] chunk flush error: {exc}")
 
-    def start(self) -> None:
-        """Open the mic stream and begin buffering. No-op if already running."""
+    def start(self, on_chunk: Optional[Callable[[np.ndarray], None]] = None) -> None:
+        """Open the mic stream and begin capturing. No-op if already running.
+
+        on_chunk enables near-real-time mode: instead of buffering the whole
+        clip for one transcription on stop(), the stream is split into phrases
+        at natural pauses and each phrase (16k float32) is handed to on_chunk as
+        it completes. on_chunk must be non-blocking (enqueue and return).
+        """
         if self._stream is not None:
             return
         self._frames = []
+        self._on_chunk = on_chunk
+        self._chunker = None
         self._stop_flag = threading.Event()
-        self._open_stream()
+        self._open_stream()  # sets self._capture_rate
+        if on_chunk is not None:
+            self._chunker = chunker.PhraseChunker(self._emit_chunk, self._capture_rate)
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
 
@@ -105,6 +143,7 @@ class Recorder:
         # skip the rest — we've already captured the frames.
         stream = self._stream
         self._stream = None
+        self._chunker = None  # release; chunked runs already flushed above
         for teardown in (stream.abort, stream.close):
             try:
                 teardown()
