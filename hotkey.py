@@ -135,10 +135,14 @@ class PushToTalk:
         # Chunked (near-real-time) mode: phrases are transcribed and pasted as
         # they complete, instead of one transcription on release.
         self._streaming = streaming
-        # A single worker drains this FIFO so phrases are pasted strictly in
-        # order (each paste lands before the next chunk reads the caret).
-        self._chunk_q: "queue.Queue[object]" = queue.Queue()
-        self._chunk_worker: Optional[threading.Thread] = None
+        # ONE persistent worker drains this FIFO and does all transcription +
+        # AI cleanup + delivery — for both batch clips and streaming phrases.
+        # It MUST be a single long-lived thread: MLX (mlx-whisper and mlx-lm)
+        # hangs if driven from many short-lived threads, and a single worker
+        # also keeps pastes strictly in order (each lands before the next reads
+        # the caret).
+        self._work_q: "queue.Queue[object]" = queue.Queue()
+        self._work_thread: Optional[threading.Thread] = None
         # Count of enqueued-but-not-yet-delivered phrases; when it hits 0 after
         # release we're idle. Guarded because the count is touched from the
         # capture thread (enqueue) and the chunk worker (deliver).
@@ -204,40 +208,32 @@ class PushToTalk:
                         # (silence held), we're already idle.
                         self._maybe_idle()
                     else:
-                        threading.Thread(
-                            target=self._handle_clip, args=(clip,), daemon=True
-                        ).start()
+                        # Batch: hand the whole clip to the same worker thread.
+                        self._enqueue_clip(clip)
             except Exception as exc:
                 print(f"[hotkey] audio {cmd} error: {exc}")
                 # Never leave the speakers muted if start/stop blew up mid-way.
                 if self._mute is not None:
                     self._mute.restore()
 
-    def _handle_clip(self, clip) -> None:
-        """Batch mode: transcribe the whole clip and deliver it, then go idle."""
-        prompt = self._prompt_provider() if self._prompt_provider else None
-        try:
-            text = self._transcribe(clip, initial_prompt=prompt)
-            self._on_text(text)
-        except Exception as exc:
-            print(f"[hotkey] transcription error: {exc}")
-        if self._on_idle_cb:
-            self._on_idle_cb()
-
-    # --- chunked (near-real-time) path -------------------------------------
-    def _enqueue_chunk(self, clip) -> None:
-        """Recorder callback (capture thread): queue a phrase for transcription.
-        Must stay non-blocking so capture never stalls."""
+    # --- transcription + delivery (single persistent worker) ----------------
+    def _enqueue_clip(self, clip) -> None:
+        """Queue a clip/phrase for the work thread. Non-blocking so neither the
+        capture thread (streaming) nor the audio worker (batch) ever stalls."""
         with self._pending_lock:
             self._pending += 1
-        self._chunk_q.put(clip)
+        self._work_q.put(clip)
 
-    def _chunk_loop(self) -> None:
-        """Transcribe and deliver phrases one at a time, in order. Serializing
-        here is what keeps pastes ordered and lets each chunk's caret read see
-        the previous chunk already inserted."""
+    # Streaming recorder callback (runs on the capture thread) — same path.
+    _enqueue_chunk = _enqueue_clip
+
+    def _work_loop(self) -> None:
+        """Transcribe, clean up, and deliver clips one at a time, in order, all
+        on THIS one thread (MLX is not safe across many threads). Serializing
+        also keeps pastes ordered and lets each chunk's caret read see the
+        previous one already inserted."""
         while True:
-            clip = self._chunk_q.get()
+            clip = self._work_q.get()
             prompt = self._prompt_provider() if self._prompt_provider else None
             try:
                 text = self._transcribe(
@@ -247,7 +243,7 @@ class PushToTalk:
                     self._last_text = text  # context for the next phrase
                 self._on_text(text)
             except Exception as exc:
-                print(f"[hotkey] chunk transcription error: {exc}")
+                print(f"[hotkey] transcription error: {exc}")
             with self._pending_lock:
                 self._pending -= 1
             self._maybe_idle()
@@ -264,9 +260,9 @@ class PushToTalk:
         if self._worker is None:
             self._worker = threading.Thread(target=self._audio_worker, daemon=True)
             self._worker.start()
-        if self._streaming and self._chunk_worker is None:
-            self._chunk_worker = threading.Thread(target=self._chunk_loop, daemon=True)
-            self._chunk_worker.start()
+        if self._work_thread is None:
+            self._work_thread = threading.Thread(target=self._work_loop, daemon=True)
+            self._work_thread.start()
         mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,

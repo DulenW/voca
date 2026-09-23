@@ -34,6 +34,31 @@ PUNCT_FILES = [
 ]
 
 
+def _cleanup_local_repo() -> str | None:
+    """The on-device AI-cleanup model to ensure, or None when local cleanup is
+    off (backend "off"/"cloud"). Read from config so we only download the ~1.8GB
+    model for users who actually use local cleanup."""
+    try:
+        import config
+
+        cfg = config.load()
+    except Exception:
+        return None
+    if cfg.get("cleanup_backend") == "local":
+        return cfg.get("cleanup_model_local") or "mlx-community/Qwen2.5-3B-Instruct-4bit"
+    return None
+
+
+def _hf_snapshot_present(repo: str) -> bool:
+    """True if a Hugging Face repo is already in the local cache."""
+    d = os.path.join(_HF_HUB, "models--" + repo.replace("/", "--"), "snapshots")
+    if not os.path.isdir(d):
+        return False
+    return any(
+        os.path.exists(os.path.join(d, s, "config.json")) for s in os.listdir(d)
+    )
+
+
 def whisper_present() -> bool:
     if not os.path.isdir(_WHISPER_SNAPSHOTS):
         return False
@@ -52,7 +77,12 @@ def punct_present() -> bool:
 
 
 def models_present() -> bool:
-    return whisper_present() and punct_present()
+    if not (whisper_present() and punct_present()):
+        return False
+    repo = _cleanup_local_repo()
+    if repo and not _hf_snapshot_present(repo):
+        return False
+    return True
 
 
 def configure_env() -> None:
@@ -83,5 +113,12 @@ def ensure_models(progress) -> None:
         from huggingface_hub import snapshot_download
 
         snapshot_download(WHISPER)
+
+    repo = _cleanup_local_repo()
+    if repo and not _hf_snapshot_present(repo):
+        progress("Downloading AI cleanup model… (~1.8 GB, one time)")
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo)
 
     progress("Models ready.")

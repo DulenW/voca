@@ -25,6 +25,17 @@ DEFAULTS = {
     # while you hold (faster feel, slightly lower accuracy).
     # For higher accuracy at the cost of speed, set "model" above to
     # "mlx-community/whisper-large-v3" (a larger, slower, ~3GB download).
+
+    # AI cleanup: rewrite the transcript into clean, well-formatted prose (fix
+    # grammar/homophones, drop fillers, format numbers/emails/dates/lists).
+    "cleanup_backend": "local",  # "off" | "local" (free, on-device, private) |
+    # "cloud" (Anthropic Claude via YOUR own API key — opt-in, costs you money).
+    "cleanup_model_local": "mlx-community/Qwen2.5-3B-Instruct-4bit",  # ~1.8GB,
+    # downloaded once on first launch; runs on the Apple GPU like Whisper.
+    "cleanup_model_cloud": "claude-haiku-4-5-20251001",  # used only if backend="cloud".
+    "anthropic_api_key": "",  # only for backend="cloud"; the env var
+    # ANTHROPIC_API_KEY takes precedence over this. Never sent anywhere unless
+    # you set backend="cloud".
 }
 
 

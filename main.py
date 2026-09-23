@@ -41,6 +41,7 @@ from PyObjCTools import AppHelper
 import audio
 import config
 import corrections
+import enhance
 import formatting
 import hotkey
 import inject
@@ -167,6 +168,13 @@ class VocaApp(rumps.App):
         except Exception as exc:
             print(f"[main] VAD not loaded: {exc}")
 
+        # Warm the AI cleanup model (no-op unless the local backend is on) so the
+        # first dictation isn't slowed by a cold model load.
+        try:
+            enhance.warm_up(self.cfg)
+        except Exception as exc:
+            print(f"[main] cleanup model not loaded: {exc}")
+
         # Start the hotkey listener on the main thread.
         self._ui(self._activate)
 
@@ -234,13 +242,20 @@ class VocaApp(rumps.App):
         if not text:
             return
         text = corrections.apply_corrections(text)  # learned fixes
-        text = punctuate.restore(text)  # commas / periods / question marks
+        vocab_terms = [r["term"] for r in corrections.list_vocab()]
+        if self.cfg["cleanup_backend"] != "off":
+            # AI cleanup handles punctuation, grammar, fillers, and smart
+            # formatting in one pass (falls back to raw text on any failure).
+            self._ui(self._set_status, "Cleaning up…")
+            text = enhance.enhance(text, vocab_terms, self.cfg)
+        else:
+            text = punctuate.restore(text)  # commas / periods / question marks
         before, known = inject.caret_context()  # what's before the cursor
         text = formatting.format_text(
             text,
             before=before,
             context_known=known,
-            vocab_terms=[r["term"] for r in corrections.list_vocab()],
+            vocab_terms=vocab_terms,
         )
         inject.inject_text(
             text,

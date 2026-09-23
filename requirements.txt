@@ -37,3 +37,10 @@ transformers>=4.40,<5
 # Pinned to 6.2.1: 6.2.2 hard-imports onnxruntime at package load, which we
 # don't bundle (we use the torch JIT model), breaking the app bundle.
 silero-vad==6.2.1
+
+# Optional AI cleanup layer (enhance.py). Local backend: a small on-device LLM
+# on the Apple GPU (free, offline) that fixes grammar, drops fillers, and
+# smart-formats numbers/dates/emails/lists. Cloud backend: Anthropic Claude via
+# the user's own API key (opt-in). Both degrade to raw text if unavailable.
+mlx-lm>=0.31,<1
+anthropic>=0.40
