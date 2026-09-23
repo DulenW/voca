@@ -41,6 +41,26 @@ _STYLE_PRIMER = (
 )
 
 
+def _normalize(audio: np.ndarray, target_rms: float = 0.08,
+               max_gain: float = 12.0) -> np.ndarray:
+    """Boost a quiet clip to a healthy level so soft/low voices transcribe well.
+
+    Only ever amplifies (leaves normal/loud speech untouched), caps the gain so
+    near-silence isn't blown up, and clamps to avoid clipping. Helps both the
+    speech gate and Whisper hear a faint voice.
+    """
+    if audio.size == 0:
+        return audio
+    rms = float(np.sqrt(np.mean(np.square(audio.astype(np.float64)))))
+    peak = float(np.max(np.abs(audio)))
+    if rms <= 0.0 or peak <= 0.0:
+        return audio
+    gain = min(target_rms / rms, 0.98 / peak, max_gain)
+    if gain <= 1.0:
+        return audio  # already loud enough — don't attenuate
+    return (audio * gain).astype(np.float32)
+
+
 def _build_prompt(vocab: str | None, prev_text: str | None = None) -> str:
     """Combine the punctuation/capitalization primer with the custom vocab and,
     in streaming mode, the previous phrase — so the model has continuity across
@@ -58,16 +78,23 @@ def transcribe(
     model: str = DEFAULT_MODEL,
     initial_prompt: str | None = None,
     prev_text: str | None = None,
+    boost: bool = True,
 ) -> str:
     """Transcribe 16kHz mono float32 audio to English text.
 
     initial_prompt carries the custom vocab; it's wrapped in a punctuation
     primer so output is properly capitalized and punctuated. prev_text is the
     previous phrase (streaming only), added as preceding context for continuity.
+    boost auto-amplifies quiet clips so soft voices transcribe reliably.
     Returns the stripped transcript, or "" for empty/near-silent input.
     """
     if audio is None or audio.size == 0:
         return ""
+    # Boost a soft voice first, so the gate and Whisper both get a strong
+    # signal. Capped + boost-only, so silence stays quiet and loud speech is
+    # untouched — the VAD still rejects non-speech.
+    if boost:
+        audio = _normalize(audio)
     # Speech gate: skip silence/noise so Whisper doesn't hallucinate text.
     if not speech.has_speech(audio):
         return ""

@@ -219,6 +219,7 @@ class VocaApp(rumps.App):
             model=self.cfg["model"],
             initial_prompt=initial_prompt,
             prev_text=prev_text,
+            boost=self.cfg["boost_quiet_speech"],
         )
 
     def _on_press(self) -> None:

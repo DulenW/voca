@@ -36,6 +36,9 @@ DEFAULTS = {
     "anthropic_api_key": "",  # only for backend="cloud"; the env var
     # ANTHROPIC_API_KEY takes precedence over this. Never sent anywhere unless
     # you set backend="cloud".
+
+    "boost_quiet_speech": True,  # auto-amplify soft/low-volume voices before
+    # transcription (boost-only, capped) so a quiet voice is picked up reliably.
 }
 
 
